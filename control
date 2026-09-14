@@ -1,8 +1,8 @@
 Package: com.sushibta.vmlspeedbubble
 Name: VMLSpeedBubble
-Version: 16.17-fpt-linhsan1
+Version: 16.18-carplay-weather-session1
 Architecture: iphoneos-arm64e
-Description: Google Maps CarPlay destination weather with compact dynamic banner and FPT.AI Linh San southern female TTS via SpringBoard, with automatic system voice fallback when FPT is unavailable.
+Description: Google Maps CarPlay destination weather with compact right-shifted banner, dynamic weather icon, one notification per navigation start, FPT.AI Linh San TTS when configured, system fallback, and no obsolete probe/test modules.
 Maintainer: sushibta25-design
 Author: sushibta25-design
 Section: Tweaks
