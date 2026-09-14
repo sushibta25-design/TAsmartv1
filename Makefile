@@ -4,7 +4,7 @@ THEOS_PACKAGE_SCHEME = rootless
 
 include $(THEOS)/makefiles/common.mk
 
-TWEAK_NAME = VMLSpeedBubble VMLRuntimeSniffer GoogleMapsPhoneSniffer GoogleMapsWeatherIPC CarPlayWeatherIPC CarPlayGoogleHostProbe CarPlayTemplateHostProbe WeatherSpeechBridge
+TWEAK_NAME = VMLSpeedBubble VMLRuntimeSniffer CarPlayWeatherIPC CarPlayTemplateHostProbe WeatherSpeechBridge
 
 VMLSpeedBubble_FILES = Tweak.xm
 VMLSpeedBubble_CFLAGS = -fobjc-arc -Werror
@@ -15,25 +15,10 @@ VMLRuntimeSniffer_CFLAGS = -fobjc-arc -Werror
 VMLRuntimeSniffer_FRAMEWORKS = UIKit Foundation
 VMLRuntimeSniffer_LIBRARIES = substrate
 
-GoogleMapsPhoneSniffer_FILES = GoogleMapsPhoneSniffer.xm
-GoogleMapsPhoneSniffer_CFLAGS = -fobjc-arc -Werror
-GoogleMapsPhoneSniffer_FRAMEWORKS = UIKit Foundation CoreLocation AVFoundation
-GoogleMapsPhoneSniffer_LIBRARIES = substrate
-
-GoogleMapsWeatherIPC_FILES = GoogleMapsWeatherIPC.xm
-GoogleMapsWeatherIPC_CFLAGS = -fobjc-arc -Werror
-GoogleMapsWeatherIPC_FRAMEWORKS = UIKit Foundation CoreLocation
-GoogleMapsWeatherIPC_LIBRARIES = substrate
-
 CarPlayWeatherIPC_FILES = CarPlayWeatherIPC.xm
 CarPlayWeatherIPC_CFLAGS = -fobjc-arc -Werror
 CarPlayWeatherIPC_FRAMEWORKS = UIKit Foundation QuartzCore
 CarPlayWeatherIPC_LIBRARIES = substrate
-
-CarPlayGoogleHostProbe_FILES = CarPlayGoogleHostProbe.xm
-CarPlayGoogleHostProbe_CFLAGS = -fobjc-arc -Werror
-CarPlayGoogleHostProbe_FRAMEWORKS = UIKit Foundation QuartzCore
-CarPlayGoogleHostProbe_LIBRARIES = substrate
 
 CarPlayTemplateHostProbe_FILES = CarPlayTemplateHostProbe.xm
 CarPlayTemplateHostProbe_CFLAGS = -fobjc-arc -Werror
