@@ -1,8 +1,8 @@
 Package: com.sushibta.vmlspeedbubble
 Name: VMLSpeedBubble
-Version: 16.19-vietmap-hidefix1
+Version: 16.20-vietmap-stable-weatherfix1
 Architecture: iphoneos-arm64e
-Description: Google Maps CarPlay weather build with hard-hide guard that keeps the speed bubble fully hidden while VietMap Live is active on CarPlay, preventing DuoDash/multi-scene flicker.
+Description: Restore CarPlay weather notifications, widen the weather banner by 5 percent, and use a stable VietMap CarPlay visibility bridge so speed bubbles stay hidden without flicker while VietMap Live is open.
 Maintainer: sushibta25-design
 Author: sushibta25-design
 Section: Tweaks
