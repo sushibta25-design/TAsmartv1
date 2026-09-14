@@ -1,8 +1,8 @@
 Package: com.sushibta.vmlspeedbubble
 Name: VMLSpeedBubble
-Version: 16.20-vietmap-stable-weatherfix1
+Version: 16.21-home-weather-repair1
 Architecture: iphoneos-arm64e
-Description: Restore CarPlay weather notifications, widen the weather banner by 5 percent, and use a stable VietMap CarPlay visibility bridge so speed bubbles stay hidden without flicker while VietMap Live is open.
+Description: Hide speed bubble only on CarPlay Home and VietMap Live, restore Home touch pass-through for DuoDash controls, and repair per-navigation weather geocoding with destination-name priority plus Open-Meteo fallback.
 Maintainer: sushibta25-design
 Author: sushibta25-design
 Section: Tweaks
