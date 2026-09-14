@@ -1,8 +1,8 @@
 Package: com.sushibta.vmlspeedbubble
 Name: VMLSpeedBubble
-Version: 16.30-rollback-core1
+Version: 16.30-baseline15.4-weather16.18-recovery1
 Architecture: iphoneos-arm64e
-Description: Roll back the experimental hosted-surface bubble path and restore the original CarPlay overlay core before further scene/touch fixes.
+Description: Recovery build combining the last stable pre-weather bubble core with the last successful CarPlay destination-weather stack from 16.18; no post-16.18 Home/DuoPhone/visibility experiments.
 Maintainer: sushibta25-design
 Author: sushibta25-design
 Section: Tweaks
