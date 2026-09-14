@@ -1,8 +1,8 @@
 Package: com.sushibta.vmlspeedbubble
 Name: VMLSpeedBubble
-Version: 16.26-home-dashboard-hide1
+Version: 16.27-systemsurface-windowhide1
 Architecture: iphoneos-arm64e
-Description: Hide the speed bubble on both CarPlay Home/App Grid and CarPlay Dashboard system surfaces, keep it visible in real CarPlay apps, and still hard-hide it in VietMap Live.
+Description: Hard-hide the primary VMLPassthroughWindow and all tagged bubble mirrors on CarPlay Home/App Grid and Dashboard, keep bubble visible in real CarPlay apps, and preserve VietMap Live hard-hide.
 Maintainer: sushibta25-design
 Author: sushibta25-design
 Section: Tweaks
