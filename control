@@ -1,8 +1,8 @@
 Package: com.sushibta.vmlspeedbubble
 Name: VMLSpeedBubble
-Version: 16.22-home-detect-failsafe1
+Version: 16.23-home-duophone-overlayfix1
 Architecture: iphoneos-arm64e
-Description: Fix CarPlay Home detection so the speed bubble defaults visible and hides only on a positively identified Home/App Grid, while preserving VietMap hide and weather repair logic.
+Description: Hide the speed bubble on CarPlay Home using launcher evidence, disable the unstable legacy DuoDash mirror, and pin a synchronized bubble above DuoPhone elevated hosted-app surfaces so apps such as YouTube cannot cover it.
 Maintainer: sushibta25-design
 Author: sushibta25-design
 Section: Tweaks
