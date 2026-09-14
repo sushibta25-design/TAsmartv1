@@ -16,7 +16,6 @@ static UIImageView *gCPWChevron = nil;
 static BOOL CPWIsCarPlayApp(void){return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.CarPlayApp"];}
 static BOOL CPWSceneLooksCarPlay(UIWindowScene *scene){if(!scene)return NO;NSString *role=scene.session.role?:@"";if([role localizedCaseInsensitiveContainsString:@"CarPlay"])return YES;CGSize s=scene.screen.bounds.size;return s.width>s.height&&s.width>=300&&s.height<=500;}
 static UIWindowScene *CPWFindScene(void){UIWindowScene *best=nil;CGFloat bestScore=-CGFLOAT_MAX;for(UIScene *raw in UIApplication.sharedApplication.connectedScenes){if(![raw isKindOfClass:UIWindowScene.class])continue;UIWindowScene *scene=(UIWindowScene *)raw;if(!CPWSceneLooksCarPlay(scene))continue;CGSize s=scene.screen.bounds.size;CGFloat score=s.width*s.height;if(!best||score>bestScore){best=scene;bestScore=score;}}return best;}
-
 static NSString *CPWDescription(NSInteger code){if(code==0)return @"Trời nắng";if(code<=3)return @"Có mây";if(code==45||code==48)return @"Sương mù";if((code>=51&&code<=57)||(code>=61&&code<=67)||(code>=80&&code<=82))return @"Có mưa";if(code>=71&&code<=77)return @"Có tuyết";if(code>=95)return @"Có dông";return @"Thời tiết thay đổi";}
 static NSString *CPWSymbolName(NSInteger code){if(code==0)return @"sun.max.fill";if(code<=3)return @"cloud.sun.fill";if(code==45||code==48)return @"cloud.fog.fill";if((code>=51&&code<=57)||(code>=61&&code<=67)||(code>=80&&code<=82))return @"cloud.rain.fill";if(code>=71&&code<=77)return @"cloud.snow.fill";if(code>=95)return @"cloud.bolt.rain.fill";return @"cloud.fill";}
 static UIColor *CPWIconTint(NSInteger code){if(code==0)return [UIColor colorWithRed:1 green:.78 blue:.08 alpha:1];if((code>=51&&code<=57)||(code>=61&&code<=67)||(code>=80&&code<=82))return [UIColor colorWithRed:.30 green:.72 blue:1 alpha:1];if(code>=95)return [UIColor colorWithRed:.72 green:.55 blue:1 alpha:1];return UIColor.whiteColor;}
@@ -28,22 +27,47 @@ static void CPWEnsureWindow(void){
     if(!gCPWWindow){
         gCPWWindow=[[UIWindow alloc]initWithWindowScene:scene];gCPWWindow.backgroundColor=UIColor.clearColor;gCPWWindow.userInteractionEnabled=NO;
         UIViewController *vc=[UIViewController new];vc.view.backgroundColor=UIColor.clearColor;vc.view.userInteractionEnabled=NO;gCPWWindow.rootViewController=vc;
-        UIView *card=[UIView new];card.backgroundColor=[UIColor colorWithWhite:.06 alpha:.94];card.layer.cornerRadius=18;card.layer.masksToBounds=YES;card.layer.borderWidth=.6;card.layer.borderColor=[UIColor colorWithWhite:1 alpha:.18].CGColor;card.hidden=YES;card.userInteractionEnabled=NO;[vc.view addSubview:card];gCPWCard=card;
+        UIView *card=[UIView new];card.backgroundColor=[UIColor colorWithWhite:.055 alpha:.95];card.layer.cornerRadius=18;card.layer.masksToBounds=YES;card.layer.borderWidth=.6;card.layer.borderColor=[UIColor colorWithWhite:1 alpha:.16].CGColor;card.hidden=YES;card.userInteractionEnabled=NO;[vc.view addSubview:card];gCPWCard=card;
         UIImageView *icon=[UIImageView new];icon.contentMode=UIViewContentModeScaleAspectFit;[card addSubview:icon];gCPWIcon=icon;
-        UILabel *temp=[UILabel new];temp.textColor=UIColor.whiteColor;temp.font=[UIFont systemFontOfSize:32 weight:UIFontWeightSemibold];temp.adjustsFontSizeToFitWidth=YES;[card addSubview:temp];gCPWTemp=temp;
+        UILabel *temp=[UILabel new];temp.textColor=UIColor.whiteColor;temp.font=[UIFont systemFontOfSize:31 weight:UIFontWeightSemibold];temp.adjustsFontSizeToFitWidth=YES;temp.minimumScaleFactor=.75;[card addSubview:temp];gCPWTemp=temp;
         UIView *sep=[UIView new];sep.tag=161601;sep.backgroundColor=[UIColor colorWithWhite:1 alpha:.18];[card addSubview:sep];
         UILabel *name=[UILabel new];name.textColor=UIColor.whiteColor;name.font=[UIFont systemFontOfSize:20 weight:UIFontWeightSemibold];name.numberOfLines=1;name.adjustsFontSizeToFitWidth=YES;name.minimumScaleFactor=.72;[card addSubview:name];gCPWName=name;
         UILabel *condition=[UILabel new];condition.textColor=[UIColor colorWithWhite:.82 alpha:1];condition.font=[UIFont systemFontOfSize:16 weight:UIFontWeightRegular];[card addSubview:condition];gCPWCondition=condition;
-        UIImageView *chevron=[UIImageView new];chevron.image=[UIImage systemImageNamed:@"chevron.right"];chevron.tintColor=[UIColor colorWithWhite:.82 alpha:1];chevron.contentMode=UIViewContentModeScaleAspectFit;[card addSubview:chevron];gCPWChevron=chevron;
+        UIImageView *chevron=[UIImageView new];chevron.image=[UIImage systemImageNamed:@"chevron.right"];chevron.tintColor=[UIColor colorWithWhite:.88 alpha:1];chevron.contentMode=UIViewContentModeScaleAspectFit;[card addSubview:chevron];gCPWChevron=chevron;
     }
     gCPWWindow.frame=bounds;gCPWWindow.rootViewController.view.frame=bounds;
-    CGFloat width=MIN(bounds.size.width-30,640),height=86,x=(bounds.size.width-width)/2.0,y=MAX(10,bounds.size.height*.035);gCPWCard.frame=CGRectMake(x,y,width,height);
-    CGFloat left=18,iconW=58,tempW=92,sepX=left+iconW+tempW+17;gCPWIcon.frame=CGRectMake(left,14,iconW,58);gCPWTemp.frame=CGRectMake(left+iconW+8,18,tempW,50);UIView *sep=[gCPWCard viewWithTag:161601];sep.frame=CGRectMake(sepX,15,1,56);CGFloat textX=sepX+22;CGFloat chevW=24;gCPWChevron.frame=CGRectMake(width-38,31,chevW,24);CGFloat textW=width-textX-54;gCPWName.frame=CGRectMake(textX,14,textW,31);gCPWCondition.frame=CGRectMake(textX,45,textW,24);
+
+    // Layout matched to the reference: compact card, about 55% of screen width,
+    // right shifted with about 10% right margin. Text group is also shifted right.
+    CGFloat width=MIN(620.0,bounds.size.width*.55);
+    CGFloat height=MIN(90.0,MAX(78.0,bounds.size.height*.20));
+    CGFloat rightMargin=bounds.size.width*.10;
+    CGFloat x=MAX(12.0,bounds.size.width-width-rightMargin);
+    CGFloat y=MAX(10.0,bounds.size.height*.035);
+    gCPWCard.frame=CGRectMake(x,y,width,height);
+
+    CGFloat iconW=MIN(60.0,width*.095);
+    CGFloat tempW=MIN(102.0,width*.16);
+    CGFloat left=MAX(16.0,width*.035);
+    CGFloat sepX=left+iconW+tempW+12.0;
+    gCPWIcon.frame=CGRectMake(left,(height-iconW)/2.0,iconW,iconW);
+    gCPWTemp.frame=CGRectMake(left+iconW+7.0,17.0,tempW,height-34.0);
+    UIView *sep=[gCPWCard viewWithTag:161601];sep.frame=CGRectMake(sepX,14.0,1.0,height-28.0);
+
+    // Push notification text approximately 10% further right inside the card.
+    CGFloat textShift=width*.10;
+    CGFloat textX=sepX+18.0+textShift;
+    CGFloat chevW=22.0;
+    gCPWChevron.frame=CGRectMake(width-34.0,(height-chevW)/2.0,chevW,chevW);
+    CGFloat textW=MAX(90.0,width-textX-48.0);
+    gCPWName.frame=CGRectMake(textX,13.0,textW,30.0);
+    gCPWCondition.frame=CGRectMake(textX,43.0,textW,24.0);
+
     CGFloat highest=UIWindowLevelAlert;for(UIWindow *w in scene.windows)if(w&&w!=gCPWWindow)highest=MAX(highest,w.windowLevel);gCPWWindow.windowLevel=MAX(UIWindowLevelAlert+250,highest+120);gCPWWindow.hidden=NO;gCPWWindow.alpha=1;
 }
 
 static NSDictionary *CPWPayload(void){NSDictionary *p=[NSDictionary dictionaryWithContentsOfFile:kCPWPayloadPath];return [p isKindOfClass:NSDictionary.class]?p:nil;}
-static void CPWShowWeather(NSString *name,double tempC,NSInteger code,NSTimeInterval duration){dispatch_async(dispatch_get_main_queue(),^{CPWEnsureWindow();if(!gCPWCard)return;UIImageSymbolConfiguration *cfg=[UIImageSymbolConfiguration configurationWithPointSize:45 weight:UIImageSymbolWeightMedium scale:UIImageSymbolScaleLarge];gCPWIcon.image=[[UIImage systemImageNamed:CPWSymbolName(code) withConfiguration:cfg] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];gCPWIcon.tintColor=CPWIconTint(code);gCPWTemp.text=[NSString stringWithFormat:@"%.0f°C",tempC];gCPWName.text=name.length?name:@"Điểm đến";gCPWCondition.text=CPWDescription(code);gCPWCard.hidden=NO;gCPWCard.alpha=0;gCPWCard.transform=CGAffineTransformMakeTranslation(18,0);[UIView animateWithDuration:.24 animations:^{gCPWCard.alpha=1;gCPWCard.transform=CGAffineTransformIdentity;}];dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(duration*NSEC_PER_SEC)),dispatch_get_main_queue(),^{[UIView animateWithDuration:.22 animations:^{gCPWCard.alpha=0;gCPWCard.transform=CGAffineTransformMakeTranslation(14,0);} completion:^(__unused BOOL finished){gCPWCard.hidden=YES;gCPWCard.transform=CGAffineTransformIdentity;}];});});}
-static void CPWReadWeather(int token){NSDictionary *p=CPWPayload();if(p){CPWShowWeather([p[@"name"] description],[p[@"temperature"] doubleValue],[p[@"weather_code"] integerValue],8);return;}uint64_t state=0;if(notify_get_state(token,&state)!=NOTIFY_STATUS_OK)return;NSInteger tp=(NSInteger)(state&0xFFFFULL),code=(NSInteger)((state>>16)&0xFFULL);double temp=((double)tp-1000)/10.0;CPWShowWeather(@"Điểm đến",temp,code,8);}
+static void CPWShowWeather(NSString *name,double tempC,NSInteger code,NSTimeInterval duration){dispatch_async(dispatch_get_main_queue(),^{CPWEnsureWindow();if(!gCPWCard)return;UIImageSymbolConfiguration *cfg=[UIImageSymbolConfiguration configurationWithPointSize:44 weight:UIImageSymbolWeightMedium scale:UIImageSymbolScaleLarge];gCPWIcon.image=[[UIImage systemImageNamed:CPWSymbolName(code) withConfiguration:cfg]imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];gCPWIcon.tintColor=CPWIconTint(code);gCPWTemp.text=[NSString stringWithFormat:@"%.0f°C",tempC];gCPWName.text=name.length?name:@"Điểm đến";gCPWCondition.text=CPWDescription(code);gCPWCard.hidden=NO;gCPWCard.alpha=0;gCPWCard.transform=CGAffineTransformMakeTranslation(16,0);[UIView animateWithDuration:.24 animations:^{gCPWCard.alpha=1;gCPWCard.transform=CGAffineTransformIdentity;}];dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(duration*NSEC_PER_SEC)),dispatch_get_main_queue(),^{[UIView animateWithDuration:.22 animations:^{gCPWCard.alpha=0;gCPWCard.transform=CGAffineTransformMakeTranslation(12,0);}completion:^(__unused BOOL finished){gCPWCard.hidden=YES;gCPWCard.transform=CGAffineTransformIdentity;}];});});}
+static void CPWReadWeather(int token){NSDictionary *p=CPWPayload();if(p){CPWShowWeather([p[@"name"]description],[p[@"temperature"]doubleValue],[p[@"weather_code"]integerValue],8);return;}uint64_t state=0;if(notify_get_state(token,&state)!=NOTIFY_STATUS_OK)return;NSInteger tp=(NSInteger)(state&0xFFFFULL),code=(NSInteger)((state>>16)&0xFFULL);double temp=((double)tp-1000)/10.0;CPWShowWeather(@"Điểm đến",temp,code,8);}
 static void CPWStartReceiver(void){if(!CPWIsCarPlayApp()||gCPWToken)return;int token=0;uint32_t s=notify_register_dispatch(kCPWWeatherNotify,&token,dispatch_get_main_queue(),^(int incoming){gCPWToken=incoming;CPWReadWeather(incoming);});if(s==NOTIFY_STATUS_OK)gCPWToken=token;}
-%ctor{@autoreleasepool{if(!CPWIsCarPlayApp())return;CPWStartReceiver();[[NSNotificationCenter defaultCenter]addObserverForName:UISceneDidActivateNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(__unused NSNotification *n){dispatch_after(dispatch_time(DISPATCH_TIME_NOW,600*NSEC_PER_MSEC),dispatch_get_main_queue(),^{CPWEnsureWindow();});}];}}
+%ctor{@autoreleasepool{if(!CPWIsCarPlayApp())return;CPWStartReceiver();[[NSNotificationCenter defaultCenter]addObserverForName:UISceneDidActivateNotification object:nil queue:[NSOperationQueue mainQueue]usingBlock:^(__unused NSNotification *n){dispatch_after(dispatch_time(DISPATCH_TIME_NOW,600*NSEC_PER_MSEC),dispatch_get_main_queue(),^{CPWEnsureWindow();});}];}}
