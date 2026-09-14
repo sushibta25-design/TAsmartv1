@@ -37,7 +37,17 @@ static BOOL CPVStrongHomeClassName(NSString *name) {
            [n containsString:@"carhome"];
 }
 
-static void CPVScanView(UIView *view, NSUInteger depth, BOOL *strongMarker, NSUInteger *iconLikeCount) {
+static BOOL CPVIsHostedSceneViewName(NSString *name) {
+    NSString *n = name.lowercaseString;
+    return [n containsString:@"scenelayerhostcontainerview"] ||
+           [n containsString:@"scenehostcontainerview"] ||
+           [n containsString:@"hostedscene"];
+}
+
+static void CPVScanView(UIView *view, NSUInteger depth,
+                        BOOL *strongMarker,
+                        NSUInteger *iconLikeCount,
+                        NSUInteger *hostedSceneCount) {
     if (!view || depth > 18 || view.hidden || view.alpha <= 0.01) return;
     NSString *cls = NSStringFromClass(view.class) ?: @"";
     if (CPVStrongHomeClassName(cls)) *strongMarker = YES;
@@ -45,15 +55,37 @@ static void CPVScanView(UIView *view, NSUInteger depth, BOOL *strongMarker, NSUI
     if ([lower containsString:@"appicon"] || [lower containsString:@"applicationicon"]) {
         (*iconLikeCount)++;
     }
-    for (UIView *sub in view.subviews) CPVScanView(sub, depth + 1, strongMarker, iconLikeCount);
+    if (CPVIsHostedSceneViewName(cls)) {
+        CGRect r = [view convertRect:view.bounds toView:nil];
+        if (CGRectGetWidth(r) > 80.0 && CGRectGetHeight(r) > 60.0) (*hostedSceneCount)++;
+    }
+    for (UIView *sub in view.subviews) {
+        CPVScanView(sub, depth + 1, strongMarker, iconLikeCount, hostedSceneCount);
+    }
 }
 
 static void CPVScanController(UIViewController *vc, NSUInteger depth, BOOL *strongMarker) {
     if (!vc || depth > 12) return;
     NSString *cls = NSStringFromClass(vc.class) ?: @"";
     if (CPVStrongHomeClassName(cls)) *strongMarker = YES;
-    for (UIViewController *child in vc.childViewControllers) CPVScanController(child, depth + 1, strongMarker);
-    if (vc.presentedViewController) CPVScanController(vc.presentedViewController, depth + 1, strongMarker);
+    for (UIViewController *child in vc.childViewControllers) {
+        CPVScanController(child, depth + 1, strongMarker);
+    }
+    if (vc.presentedViewController) {
+        CPVScanController(vc.presentedViewController, depth + 1, strongMarker);
+    }
+}
+
+static BOOL CPVWindowContainsBubble(UIWindow *window) {
+    if (!window.rootViewController.view) return NO;
+    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:window.rootViewController.view];
+    while (stack.count) {
+        UIView *v = stack.lastObject;
+        [stack removeLastObject];
+        if (CPVIsBubbleView(v)) return YES;
+        for (UIView *s in v.subviews) [stack addObject:s];
+    }
+    return NO;
 }
 
 static BOOL CPVDetectHome(void) {
@@ -64,16 +96,25 @@ static BOOL CPVDetectHome(void) {
 
         BOOL strong = NO;
         NSUInteger iconCount = 0;
+        NSUInteger hostedCount = 0;
+
         for (UIWindow *window in scene.windows) {
             if (!window || window.hidden || window.alpha <= 0.01) continue;
-            if (window.rootViewController) {
-                CPVScanController(window.rootViewController, 0, &strong);
-                if (window.rootViewController.view) {
-                    CPVScanView(window.rootViewController.view, 0, &strong, &iconCount);
-                }
+            if (CPVWindowContainsBubble(window)) continue;
+            if (!window.rootViewController) continue;
+
+            CPVScanController(window.rootViewController, 0, &strong);
+            if (window.rootViewController.view) {
+                CPVScanView(window.rootViewController.view, 0, &strong, &iconCount, &hostedCount);
             }
         }
-        if (strong || iconCount >= 5) return YES;
+
+        // Fail open: only call it Home when all three signals agree.
+        // Persisted AppGrid views must never hide the bubble while another app is hosted.
+        BOOL home = strong && iconCount >= 5 && hostedCount == 0;
+        NSLog(@"[CPVIS] detect strong=%d icons=%lu hosted=%lu => home=%d",
+              strong, (unsigned long)iconCount, (unsigned long)hostedCount, home);
+        if (home) return YES;
     }
     return NO;
 }
@@ -166,7 +207,7 @@ static void CPVReadVietMapState(void) {
             CPVReadVietMapState();
         }
 
-        [NSTimer scheduledTimerWithTimeInterval:0.20 repeats:YES block:^(__unused NSTimer *timer) {
+        [NSTimer scheduledTimerWithTimeInterval:0.25 repeats:YES block:^(__unused NSTimer *timer) {
             BOOL home = CPVDetectHome();
             if (home != gCPHomeActive) {
                 gCPHomeActive = home;
