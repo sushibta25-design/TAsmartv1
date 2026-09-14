@@ -46,8 +46,6 @@ static BOOL CPVIsPrimaryBubbleWindow(UIWindow *window) {
 }
 
 static BOOL CPVShouldHide(void) {
-    // Home/App Grid and Dashboard are system surfaces: no real user app is foreground.
-    // VietMap Live is a special hard-hide case even when it is foreground.
     return !gCPUserAppActive || gCPVietMapActive;
 }
 
@@ -78,10 +76,6 @@ static void CPVApplyVisibility(void) {
         for (UIWindow *window in scene.windows) {
             if (!window) continue;
 
-            // Critical fix: the primary bubble lives in its own VMLPassthroughWindow.
-            // Earlier builds only hid the tagged bubble UIView. If that window was
-            // created AFTER the one-shot visibility pass, it became visible again.
-            // Hide/show the whole bubble window as well, then keep enforcing it.
             if (CPVIsPrimaryBubbleWindow(window)) {
                 overlayWindows++;
                 window.userInteractionEnabled = !hide;
@@ -237,9 +231,6 @@ static void CPVReadVietMapState(void) {
             CPVReadVietMapState();
         }
 
-        // Lightweight enforcement only: no hierarchy/class probe. This catches the
-        // bubble overlay when it is created after the guard's ctor and prevents the
-        // V15.9 promoter from making it visible again on Home/Dashboard.
         [NSTimer scheduledTimerWithTimeInterval:0.25 repeats:YES block:^(__unused NSTimer *timer) {
             CPVApplyVisibility();
         }];
