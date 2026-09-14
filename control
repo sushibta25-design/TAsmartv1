@@ -1,8 +1,8 @@
 Package: com.sushibta.vmlspeedbubble
 Name: VMLSpeedBubble
-Version: 16.21-home-weather-repair1
+Version: 16.22-home-detect-failsafe1
 Architecture: iphoneos-arm64e
-Description: Hide speed bubble only on CarPlay Home and VietMap Live, restore Home touch pass-through for DuoDash controls, and repair per-navigation weather geocoding with destination-name priority plus Open-Meteo fallback.
+Description: Fix CarPlay Home detection so the speed bubble defaults visible and hides only on a positively identified Home/App Grid, while preserving VietMap hide and weather repair logic.
 Maintainer: sushibta25-design
 Author: sushibta25-design
 Section: Tweaks
