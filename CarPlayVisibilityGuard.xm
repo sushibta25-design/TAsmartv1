@@ -4,10 +4,9 @@
 #import <notify.h>
 
 static const char *kCPVietMapNotify = "com.sushibta.vmlspeedbubble.vmlcarplaysceneactive";
-static NSString * const kCPVProbePath = @"/var/mobile/VMLCarPlayHomeState.txt";
 static int gCPVietMapToken = 0;
 static BOOL gCPVietMapActive = NO;
-static NSString *gCPVLastSignature = nil;
+static BOOL gCPHomeActive = NO;
 
 static BOOL CPVIsCarPlayApp(void) {
     return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.CarPlayApp"];
@@ -23,83 +22,86 @@ static BOOL CPVSceneLooksCarPlay(UIWindowScene *scene) {
 
 static BOOL CPVIsBubbleView(UIView *view) {
     if (!view) return NO;
-    NSInteger tag = view.tag;
-    return tag >= 990199 && tag <= 991500;
+    return view.tag >= 990199 && view.tag <= 991500;
 }
 
-static void CPVWrite(NSString *line) {
-    if (!line.length) return;
-    NSString *text = [NSString stringWithFormat:@"%@ | %@\n", [NSDate date], line];
-    NSData *data = [text dataUsingEncoding:NSUTF8StringEncoding];
-    NSFileManager *fm = NSFileManager.defaultManager;
-    if (![fm fileExistsAtPath:kCPVProbePath]) { [data writeToFile:kCPVProbePath atomically:YES]; return; }
-    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:kCPVProbePath];
-    if (!fh) return;
-    @try { [fh seekToEndOfFile]; [fh writeData:data]; [fh closeFile]; } @catch (__unused NSException *e) {}
-}
-
-static void CPVCollectClasses(UIView *view, NSUInteger depth, NSMutableArray<NSString *> *out) {
-    if (!view || depth > 8 || view.hidden || view.alpha <= 0.01) return;
-    NSString *cls = NSStringFromClass(view.class) ?: @"";
-    CGRect r = [view convertRect:view.bounds toView:nil];
-    if ([cls localizedCaseInsensitiveContainsString:@"Scene"] ||
-        [cls localizedCaseInsensitiveContainsString:@"Host"] ||
-        [cls localizedCaseInsensitiveContainsString:@"Grid"] ||
-        [cls localizedCaseInsensitiveContainsString:@"Icon"] ||
-        [cls localizedCaseInsensitiveContainsString:@"Dashboard"] ||
-        [cls localizedCaseInsensitiveContainsString:@"Dock"] ||
-        [cls localizedCaseInsensitiveContainsString:@"Application"] ||
-        [cls localizedCaseInsensitiveContainsString:@"Launcher"]) {
-        NSString *indent = [@"" stringByPaddingToLength:depth withString:@" " startingAtIndex:0];
-        [out addObject:[NSString stringWithFormat:@"%@%@ frame=%@", indent, cls, NSStringFromCGRect(r)]];
+static BOOL CPVViewTreeHasClass(UIView *root, NSString *wanted, NSUInteger depth) {
+    if (!root || depth > 12 || root.hidden || root.alpha <= 0.01) return NO;
+    if ([NSStringFromClass(root.class) isEqualToString:wanted]) {
+        CGRect r = [root convertRect:root.bounds toView:nil];
+        if (CGRectGetWidth(r) > 20.0 && CGRectGetHeight(r) > 20.0) return YES;
     }
-    for (UIView *sub in view.subviews) CPVCollectClasses(sub, depth + 1, out);
+    for (UIView *sub in root.subviews) {
+        if (CPVViewTreeHasClass(sub, wanted, depth + 1)) return YES;
+    }
+    return NO;
 }
 
-static NSString *CPVBuildSignatureAndDump(BOOL writeFull) {
-    NSMutableArray<NSString *> *sig = [NSMutableArray array];
-    NSMutableArray<NSString *> *detail = [NSMutableArray array];
+static NSUInteger CPVHostedSceneCount(UIView *root, NSUInteger depth) {
+    if (!root || depth > 12 || root.hidden || root.alpha <= 0.01) return 0;
+    NSString *name = NSStringFromClass(root.class) ?: @"";
+    NSUInteger count = ([name containsString:@"_UISceneLayerHostContainerView"] ||
+                        [name containsString:@"UISceneLayerHostContainerView"] ||
+                        [name localizedCaseInsensitiveContainsString:@"HostedScene"]) ? 1 : 0;
+    for (UIView *sub in root.subviews) count += CPVHostedSceneCount(sub, depth + 1);
+    return count;
+}
+
+static BOOL CPVDetectHome(void) {
     for (UIScene *raw in UIApplication.sharedApplication.connectedScenes) {
         if (![raw isKindOfClass:UIWindowScene.class]) continue;
         UIWindowScene *scene = (UIWindowScene *)raw;
         if (!CPVSceneLooksCarPlay(scene)) continue;
         NSString *pid = scene.session.persistentIdentifier ?: @"";
-        [sig addObject:[NSString stringWithFormat:@"SCENE:%@:%ld:%lu", pid, (long)scene.activationState, (unsigned long)scene.windows.count]];
-        [detail addObject:[NSString stringWithFormat:@"SCENE pid=%@ role=%@ state=%ld bounds=%@ windows=%lu", pid, scene.session.role ?: @"", (long)scene.activationState, NSStringFromCGRect(scene.coordinateSpace.bounds), (unsigned long)scene.windows.count]];
-        NSInteger wi = 0;
-        for (UIWindow *w in scene.windows) {
-            if (!w || w.hidden || w.alpha <= 0.01) { wi++; continue; }
-            NSString *root = w.rootViewController ? NSStringFromClass(w.rootViewController.class) : @"nil";
-            [sig addObject:[NSString stringWithFormat:@"W:%ld:%@:%0.1f:%@", (long)wi, NSStringFromClass(w.class), w.windowLevel, root]];
-            [detail addObject:[NSString stringWithFormat:@" WINDOW[%ld] class=%@ level=%.1f key=%d frame=%@ root=%@", (long)wi, NSStringFromClass(w.class), w.windowLevel, w.isKeyWindow, NSStringFromCGRect(w.frame), root]];
-            NSMutableArray<NSString *> *classes = [NSMutableArray array];
-            if (w.rootViewController.view) CPVCollectClasses(w.rootViewController.view, 0, classes);
-            for (NSString *s in classes) [detail addObject:[@"  " stringByAppendingString:s]];
-            wi++;
+        if (![pid containsString:@"DBDashboard-Car"] && ![pid containsString:@"DBDashboard"]) continue;
+
+        for (UIWindow *window in scene.windows) {
+            if (!window || window.hidden || window.alpha <= 0.01 || !window.rootViewController.view) continue;
+            NSString *rootClass = NSStringFromClass(window.rootViewController.class) ?: @"";
+            if (![rootClass isEqualToString:@"DBDashboardRootViewController"]) continue;
+
+            UIView *root = window.rootViewController.view;
+            BOOL iconScroll = CPVViewTreeHasClass(root, @"DBIconScrollView", 0);
+            BOOL iconList = CPVViewTreeHasClass(root, @"DBIconListView", 0);
+            NSUInteger hosted = CPVHostedSceneCount(root, 0);
+
+            // Exact state observed on this CarPlay setup:
+            // Home/App Grid exposes DBIconScrollView + DBIconListView with no hosted app scene.
+            return iconScroll && iconList && hosted == 0;
         }
     }
-    NSString *signature = [sig componentsJoinedByString:@"|"];
-    if (writeFull) {
-        CPVWrite(@"========== STATE CHANGE ==========");
-        for (NSString *line in detail) CPVWrite(line);
-        CPVWrite(@"==================================");
-    }
-    return signature;
+    return NO;
 }
 
-static void CPVApplyVietMapVisibility(void) {
-    if (!gCPVietMapActive) return;
+static BOOL CPVShouldHide(void) {
+    return gCPHomeActive || gCPVietMapActive;
+}
+
+static void CPVApplyVisibility(void) {
+    BOOL hide = CPVShouldHide();
     for (UIScene *raw in UIApplication.sharedApplication.connectedScenes) {
         if (![raw isKindOfClass:UIWindowScene.class]) continue;
         UIWindowScene *scene = (UIWindowScene *)raw;
         if (!CPVSceneLooksCarPlay(scene)) continue;
         for (UIWindow *window in scene.windows) {
-            NSMutableArray<UIView *> *stack = [NSMutableArray array];
-            if (window.rootViewController.view) [stack addObject:window.rootViewController.view];
+            if (!window.rootViewController.view) continue;
+            NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:window.rootViewController.view];
             while (stack.count) {
-                UIView *view = stack.lastObject; [stack removeLastObject];
+                UIView *view = stack.lastObject;
+                [stack removeLastObject];
                 if (CPVIsBubbleView(view)) {
-                    view.hidden = YES; view.layer.hidden = YES; view.alpha = 0.0; view.userInteractionEnabled = NO;
+                    if (hide) {
+                        view.hidden = YES;
+                        view.layer.hidden = YES;
+                        view.alpha = 0.0;
+                        view.userInteractionEnabled = NO;
+                    } else {
+                        view.layer.hidden = NO;
+                        view.hidden = NO;
+                        view.alpha = 1.0;
+                        // Legacy DuoDash mirror is display-only; primary/satellite bubbles remain draggable.
+                        view.userInteractionEnabled = (view.tag != 990200);
+                    }
                 }
                 for (UIView *sub in view.subviews) [stack addObject:sub];
             }
@@ -110,37 +112,61 @@ static void CPVApplyVietMapVisibility(void) {
 static void CPVReadVietMapState(void) {
     if (!gCPVietMapToken) return;
     uint64_t state = 0;
-    if (notify_get_state(gCPVietMapToken, &state) == NOTIFY_STATUS_OK) gCPVietMapActive = state != 0;
+    if (notify_get_state(gCPVietMapToken, &state) == NOTIFY_STATUS_OK) {
+        gCPVietMapActive = state != 0;
+    }
 }
 
 %hook UIView
 - (void)setHidden:(BOOL)hidden {
-    if (CPVIsCarPlayApp() && gCPVietMapActive && CPVIsBubbleView(self) && !hidden) { %orig(YES); return; }
+    if (CPVIsCarPlayApp() && CPVShouldHide() && CPVIsBubbleView(self) && !hidden) {
+        %orig(YES);
+        return;
+    }
     %orig(hidden);
 }
 - (void)setAlpha:(CGFloat)alpha {
-    if (CPVIsCarPlayApp() && gCPVietMapActive && CPVIsBubbleView(self) && alpha > 0.01) { %orig(0.0); return; }
+    if (CPVIsCarPlayApp() && CPVShouldHide() && CPVIsBubbleView(self) && alpha > 0.01) {
+        %orig(0.0);
+        return;
+    }
     %orig(alpha);
+}
+%end
+
+%hook CALayer
+- (void)setHidden:(BOOL)hidden {
+    if (CPVIsCarPlayApp() && CPVShouldHide() && !hidden) {
+        id delegate = self.delegate;
+        if ([delegate isKindOfClass:UIView.class] && CPVIsBubbleView((UIView *)delegate)) {
+            %orig(YES);
+            return;
+        }
+    }
+    %orig(hidden);
 }
 %end
 
 %ctor {
     @autoreleasepool {
         if (!CPVIsCarPlayApp()) return;
-        [[NSFileManager defaultManager] removeItemAtPath:kCPVProbePath error:nil];
-        CPVWrite(@"16.24 CarPlay Home state probe loaded; Home hiding temporarily disabled");
+
         int token = 0;
         uint32_t s = notify_register_dispatch(kCPVietMapNotify, &token, dispatch_get_main_queue(), ^(int incoming) {
-            gCPVietMapToken = incoming; CPVReadVietMapState(); CPVApplyVietMapVisibility();
+            gCPVietMapToken = incoming;
+            CPVReadVietMapState();
+            CPVApplyVisibility();
         });
-        if (s == NOTIFY_STATUS_OK) { gCPVietMapToken = token; CPVReadVietMapState(); }
-        [NSTimer scheduledTimerWithTimeInterval:0.50 repeats:YES block:^(__unused NSTimer *timer) {
-            NSString *signature = CPVBuildSignatureAndDump(NO);
-            if (!gCPVLastSignature || ![signature isEqualToString:gCPVLastSignature]) {
-                gCPVLastSignature = [signature copy];
-                CPVBuildSignatureAndDump(YES);
-            }
-            if (gCPVietMapActive) CPVApplyVietMapVisibility();
+        if (s == NOTIFY_STATUS_OK) {
+            gCPVietMapToken = token;
+            CPVReadVietMapState();
+        }
+
+        // Lightweight check only. No full-tree logging/probe on the main thread.
+        [NSTimer scheduledTimerWithTimeInterval:0.40 repeats:YES block:^(__unused NSTimer *timer) {
+            BOOL home = CPVDetectHome();
+            if (home != gCPHomeActive) gCPHomeActive = home;
+            CPVApplyVisibility();
         }];
     }
 }
