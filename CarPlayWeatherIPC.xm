@@ -37,9 +37,8 @@ static void CPWEnsureWindow(void){
     }
     gCPWWindow.frame=bounds;gCPWWindow.rootViewController.view.frame=bounds;
 
-    // Layout matched to the reference: compact card, about 55% of screen width,
-    // right shifted with about 10% right margin. Text group is also shifted right.
-    CGFloat width=MIN(620.0,bounds.size.width*.55);
+    // Same right-shifted layout, widened by 5 percentage points so long destination names have more room.
+    CGFloat width=MIN(660.0,bounds.size.width*.60);
     CGFloat height=MIN(90.0,MAX(78.0,bounds.size.height*.20));
     CGFloat rightMargin=bounds.size.width*.10;
     CGFloat x=MAX(12.0,bounds.size.width-width-rightMargin);
@@ -54,7 +53,6 @@ static void CPWEnsureWindow(void){
     gCPWTemp.frame=CGRectMake(left+iconW+7.0,17.0,tempW,height-34.0);
     UIView *sep=[gCPWCard viewWithTag:161601];sep.frame=CGRectMake(sepX,14.0,1.0,height-28.0);
 
-    // Push notification text approximately 10% further right inside the card.
     CGFloat textShift=width*.10;
     CGFloat textX=sepX+18.0+textShift;
     CGFloat chevW=22.0;
