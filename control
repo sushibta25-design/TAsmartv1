@@ -1,8 +1,8 @@
 Package: com.sushibta.vmlspeedbubble
 Name: VMLSpeedBubble
-Version: 16.25-home-exact-noprobe1
+Version: 16.26-home-dashboard-hide1
 Architecture: iphoneos-arm64e
-Description: Detect CarPlay Home from the observed DBDashboardRootViewController icon grid, hide the speed bubble only on Home or VietMap Live, and remove the heavy 16.24 state probe that could stall hosted apps such as YouTube/DuoPhone.
+Description: Hide the speed bubble on both CarPlay Home/App Grid and CarPlay Dashboard system surfaces, keep it visible in real CarPlay apps, and still hard-hide it in VietMap Live.
 Maintainer: sushibta25-design
 Author: sushibta25-design
 Section: Tweaks
