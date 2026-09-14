@@ -6,7 +6,16 @@
 static const char *kCPVietMapNotify = "com.sushibta.vmlspeedbubble.vmlcarplaysceneactive";
 static int gCPVietMapToken = 0;
 static BOOL gCPVietMapActive = NO;
-static BOOL gCPHomeActive = NO;
+
+// System-surface policy:
+// - Home/App Grid: hidden
+// - CarPlay Dashboard (map + Now Playing cards): hidden
+// - Any real CarPlay app: visible
+// - VietMap Live: hidden regardless
+// Track the actual foreground application controller instead of guessing from
+// Dashboard view hierarchy. Home <-> Dashboard swipes never set this controller.
+static __weak id gCPForegroundAppController = nil;
+static BOOL gCPUserAppActive = NO;
 
 static BOOL CPVIsCarPlayApp(void) {
     return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.CarPlayApp"];
@@ -25,56 +34,10 @@ static BOOL CPVIsBubbleView(UIView *view) {
     return view.tag >= 990199 && view.tag <= 991500;
 }
 
-static BOOL CPVViewTreeHasClass(UIView *root, NSString *wanted, NSUInteger depth) {
-    if (!root || depth > 12 || root.hidden || root.alpha <= 0.01) return NO;
-    if ([NSStringFromClass(root.class) isEqualToString:wanted]) {
-        CGRect r = [root convertRect:root.bounds toView:nil];
-        if (CGRectGetWidth(r) > 20.0 && CGRectGetHeight(r) > 20.0) return YES;
-    }
-    for (UIView *sub in root.subviews) {
-        if (CPVViewTreeHasClass(sub, wanted, depth + 1)) return YES;
-    }
-    return NO;
-}
-
-static NSUInteger CPVHostedSceneCount(UIView *root, NSUInteger depth) {
-    if (!root || depth > 12 || root.hidden || root.alpha <= 0.01) return 0;
-    NSString *name = NSStringFromClass(root.class) ?: @"";
-    NSUInteger count = ([name containsString:@"_UISceneLayerHostContainerView"] ||
-                        [name containsString:@"UISceneLayerHostContainerView"] ||
-                        [name localizedCaseInsensitiveContainsString:@"HostedScene"]) ? 1 : 0;
-    for (UIView *sub in root.subviews) count += CPVHostedSceneCount(sub, depth + 1);
-    return count;
-}
-
-static BOOL CPVDetectHome(void) {
-    for (UIScene *raw in UIApplication.sharedApplication.connectedScenes) {
-        if (![raw isKindOfClass:UIWindowScene.class]) continue;
-        UIWindowScene *scene = (UIWindowScene *)raw;
-        if (!CPVSceneLooksCarPlay(scene)) continue;
-        NSString *pid = scene.session.persistentIdentifier ?: @"";
-        if (![pid containsString:@"DBDashboard-Car"] && ![pid containsString:@"DBDashboard"]) continue;
-
-        for (UIWindow *window in scene.windows) {
-            if (!window || window.hidden || window.alpha <= 0.01 || !window.rootViewController.view) continue;
-            NSString *rootClass = NSStringFromClass(window.rootViewController.class) ?: @"";
-            if (![rootClass isEqualToString:@"DBDashboardRootViewController"]) continue;
-
-            UIView *root = window.rootViewController.view;
-            BOOL iconScroll = CPVViewTreeHasClass(root, @"DBIconScrollView", 0);
-            BOOL iconList = CPVViewTreeHasClass(root, @"DBIconListView", 0);
-            NSUInteger hosted = CPVHostedSceneCount(root, 0);
-
-            // Exact state observed on this CarPlay setup:
-            // Home/App Grid exposes DBIconScrollView + DBIconListView with no hosted app scene.
-            return iconScroll && iconList && hosted == 0;
-        }
-    }
-    return NO;
-}
-
 static BOOL CPVShouldHide(void) {
-    return gCPHomeActive || gCPVietMapActive;
+    // If no user app is foreground, CarPlay is on one of its own system surfaces
+    // (App Grid/Home or Dashboard). Both must hide the bubble.
+    return !gCPUserAppActive || gCPVietMapActive;
 }
 
 static void CPVApplyVisibility(void) {
@@ -109,6 +72,22 @@ static void CPVApplyVisibility(void) {
     }
 }
 
+static void CPVSetUserAppActive(id controller, BOOL active, NSString *reason) {
+    if (active) {
+        gCPForegroundAppController = controller;
+        gCPUserAppActive = YES;
+    } else {
+        // Ignore a delayed background callback from an older app after another app
+        // has already become foreground.
+        if (gCPForegroundAppController && controller && controller != gCPForegroundAppController) return;
+        gCPForegroundAppController = nil;
+        gCPUserAppActive = NO;
+    }
+    NSLog(@"[CPVIS] userApp=%d vietmap=%d reason=%@ controller=%@",
+          gCPUserAppActive, gCPVietMapActive, reason ?: @"?", controller);
+    CPVApplyVisibility();
+}
+
 static void CPVReadVietMapState(void) {
     if (!gCPVietMapToken) return;
     uint64_t state = 0;
@@ -116,6 +95,30 @@ static void CPVReadVietMapState(void) {
         gCPVietMapActive = state != 0;
     }
 }
+
+// These are the same Dashboard lifecycle callbacks used by CarPlay itself when
+// switching between an application and the system Home/Dashboard surfaces.
+%hook DBApplicationSceneViewController
+
+- (void)foregroundSceneWithSettings:(id)settings completion:(id)completion {
+    CPVSetUserAppActive(self, YES, @"foregroundScene");
+    %orig;
+}
+
+- (id)presentationViewWithIdentifier:(id)identifier {
+    if ([identifier isKindOfClass:NSString.class] &&
+        [identifier isEqualToString:@"kCARAppToHomeAnimationIdentifier"]) {
+        CPVSetUserAppActive(self, NO, @"appToHome");
+    }
+    return %orig;
+}
+
+- (void)backgroundSceneWithCompletion:(id)completion {
+    CPVSetUserAppActive(self, NO, @"backgroundScene");
+    %orig;
+}
+
+%end
 
 %hook UIView
 - (void)setHidden:(BOOL)hidden {
@@ -151,6 +154,10 @@ static void CPVReadVietMapState(void) {
     @autoreleasepool {
         if (!CPVIsCarPlayApp()) return;
 
+        // Safe default at CarPlay process startup: system surface => bubble hidden.
+        gCPForegroundAppController = nil;
+        gCPUserAppActive = NO;
+
         int token = 0;
         uint32_t s = notify_register_dispatch(kCPVietMapNotify, &token, dispatch_get_main_queue(), ^(int incoming) {
             gCPVietMapToken = incoming;
@@ -162,11 +169,8 @@ static void CPVReadVietMapState(void) {
             CPVReadVietMapState();
         }
 
-        // Lightweight check only. No full-tree logging/probe on the main thread.
-        [NSTimer scheduledTimerWithTimeInterval:0.40 repeats:YES block:^(__unused NSTimer *timer) {
-            BOOL home = CPVDetectHome();
-            if (home != gCPHomeActive) gCPHomeActive = home;
+        dispatch_async(dispatch_get_main_queue(), ^{
             CPVApplyVisibility();
-        }];
+        });
     }
 }
