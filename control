@@ -1,8 +1,8 @@
 Package: com.sushibta.vmlspeedbubble
 Name: VMLSpeedBubble
-Version: 16.29-surface-parent-drag1
+Version: 16.30-rollback-core1
 Architecture: iphoneos-arm64e
-Description: Disable the legacy CarPlay overlay window and render the speed bubble directly above the active elevated hosted-scene container, with working drag interaction and VietMap hide support.
+Description: Roll back the experimental hosted-surface bubble path and restore the original CarPlay overlay core before further scene/touch fixes.
 Maintainer: sushibta25-design
 Author: sushibta25-design
 Section: Tweaks
