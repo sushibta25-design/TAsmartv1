@@ -1,8 +1,8 @@
 Package: com.sushibta.vmlspeedbubble
 Name: VMLSpeedBubble
-Version: 16.30-baseline15.4-weather16.18-recovery1
+Version: 16.31-homehide-dashboardshow-youtube1
 Architecture: iphoneos-arm64e
-Description: Recovery build combining the last stable pre-weather bubble core with the last successful CarPlay destination-weather stack from 16.18; no post-16.18 Home/DuoPhone/visibility experiments.
+Description: Stable 16.30 recovery baseline plus exact CarPlay Home-only bubble hiding, Dashboard visibility retained, VietMap hide preserved, and YouTube active-state force-show for the existing bubble.
 Maintainer: sushibta25-design
 Author: sushibta25-design
 Section: Tweaks
