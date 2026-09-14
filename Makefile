@@ -4,7 +4,7 @@ THEOS_PACKAGE_SCHEME = rootless
 
 include $(THEOS)/makefiles/common.mk
 
-TWEAK_NAME = VMLSpeedBubble VMLRuntimeSniffer CarPlayWeatherIPC CarPlayTemplateHostProbe WeatherSpeechBridge
+TWEAK_NAME = VMLSpeedBubble VMLRuntimeSniffer CarPlayWeatherIPC CarPlayTemplateHostProbe WeatherSpeechBridge CarPlayVisibilityGuard YouTubeBubbleSignal
 
 VMLSpeedBubble_FILES = Tweak.xm
 VMLSpeedBubble_CFLAGS = -fobjc-arc -Werror
@@ -29,5 +29,15 @@ WeatherSpeechBridge_FILES = WeatherSpeechBridge.xm
 WeatherSpeechBridge_CFLAGS = -fobjc-arc -Werror
 WeatherSpeechBridge_FRAMEWORKS = Foundation AVFoundation
 WeatherSpeechBridge_LIBRARIES = substrate
+
+CarPlayVisibilityGuard_FILES = CarPlayVisibilityGuard.xm
+CarPlayVisibilityGuard_CFLAGS = -fobjc-arc -Werror
+CarPlayVisibilityGuard_FRAMEWORKS = UIKit Foundation QuartzCore
+CarPlayVisibilityGuard_LIBRARIES = substrate
+
+YouTubeBubbleSignal_FILES = YouTubeBubbleSignal.xm
+YouTubeBubbleSignal_CFLAGS = -fobjc-arc -Werror
+YouTubeBubbleSignal_FRAMEWORKS = UIKit Foundation
+YouTubeBubbleSignal_LIBRARIES = substrate
 
 include $(THEOS_MAKE_PATH)/tweak.mk
