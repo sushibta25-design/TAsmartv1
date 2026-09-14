@@ -43,8 +43,6 @@ static UIWindow *HBFindElevatedHostedWindow(void) {
             if ([NSStringFromClass(w.class) isEqualToString:@"VMLPassthroughWindow"]) continue;
             NSUInteger hosted = HBHostedSceneCount(w.rootViewController.view, 0);
             if (hosted < 2) continue;
-            // Ignore the stock Dashboard host at level -1. DuoPhone/Main CarPlay
-            // lives in an elevated hosted window (~2070-2300 on this setup).
             if (w.windowLevel < UIWindowLevelAlert) continue;
             CGRect f = w.frame;
             BOOL usableGeometry = CGRectGetWidth(f) > CGRectGetWidth(sceneBounds) * 0.55 &&
