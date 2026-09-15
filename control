@@ -1,8 +1,8 @@
 Package: com.sushibta.vmlspeedbubble
 Name: VMLSpeedBubble
-Version: 16.31-homehide-dashboardshow-youtube1
+Version: 16.32-duophone-split-satellite1
 Architecture: iphoneos-arm64e
-Description: Stable 16.30 recovery baseline plus exact CarPlay Home-only bubble hiding, Dashboard visibility retained, VietMap hide preserved, and YouTube active-state force-show for the existing bubble.
+Description: Stable 16.31 baseline plus the proven 16.29 hosted-surface satellite bubble for DuoPhone split, while preserving Home hide, Dashboard visibility, VietMap hide, YouTube force-show and weather.
 Maintainer: sushibta25-design
 Author: sushibta25-design
 Section: Tweaks
