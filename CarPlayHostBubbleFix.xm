@@ -1,40 +1,39 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <Foundation/Foundation.h>
-#import <objc/runtime.h>
+#import <objc/message.h>
 
 // CarPlayHostBubbleFix.xm
-// TA Layer Probe 16.38
-// READ-ONLY probe. No bubble, no mirror, no addSubview, no layer mutation.
-// Captures the layer/superlayer chain around _UIContextLayerHostView and
-// its _UISceneLayerHostContainerView / _UIScenePresentationView ancestors.
+// TA Context Test 16.39
+// Experimental CAContext-backed test surface. Does NOT touch/reparent V15.9 bubble.
+// Dynamically uses private CAContext/CALayerHost APIs so unsupported selectors fail closed.
 
 static NSString * const HBLogPath = @"/var/mobile/VMLHostSniffer.txt";
-static NSString *gLastSignature = nil;
+static id gTAContext = nil;
+static CALayer *gTARootLayer = nil;
+static CALayer *gTAHostLayer = nil;
+static __weak UIWindow *gTAWindow = nil;
+static BOOL gTADisabled = NO;
 
 static BOOL HBIsCarPlayApp(void) {
     return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.CarPlayApp"];
 }
-
 static void HBLog(NSString *fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
+    va_list args; va_start(args, fmt);
     NSString *msg = [[NSString alloc] initWithFormat:fmt arguments:args];
     va_end(args);
-
-    NSString *line = [NSString stringWithFormat:@"[TA-LAYER-16.38] %@\n", msg ?: @""];
+    NSString *line = [NSString stringWithFormat:@"[TA-CONTEXT-16.39] %@\n", msg ?: @""];
     NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:HBLogPath];
     if (!fh) {
         [line writeToFile:HBLogPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
-        return;
+    } else {
+        @try {
+            [fh seekToEndOfFile];
+            [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+            [fh closeFile];
+        } @catch (__unused NSException *e) {}
     }
-    @try {
-        [fh seekToEndOfFile];
-        [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
-        [fh closeFile];
-    } @catch (__unused NSException *e) {}
 }
-
 static BOOL HBSceneLooksCarPlay(UIWindowScene *scene) {
     if (!scene) return NO;
     NSString *role = scene.session.role ?: @"";
@@ -42,188 +41,164 @@ static BOOL HBSceneLooksCarPlay(UIWindowScene *scene) {
     CGSize s = scene.screen.bounds.size;
     return s.width > s.height && s.width >= 300 && s.height <= 500;
 }
-
-static NSString *HBSafeValue(id obj, NSString *key) {
-    if (!obj || !key.length) return @"nil";
-    @try {
-        id value = [obj valueForKey:key];
-        if (!value) return @"nil";
-        NSString *s = [value description];
-        if (s.length > 180) s = [s substringToIndex:180];
-        return s ?: @"?";
-    } @catch (__unused NSException *e) {
-        return @"<unavailable>";
-    }
-}
-
-static NSString *HBInterestingRuntimeValues(id obj) {
-    if (!obj) return @"";
-    NSArray<NSString *> *keys = @[
-        @"contextId", @"contextID", @"context",
-        @"hostContextIdentifier", @"layerContext",
-        @"windowServerHitTestContextID",
-        @"presentationContext", @"sceneIdentifier"
-    ];
-    NSMutableString *s = [NSMutableString string];
-    for (NSString *key in keys) {
-        NSString *v = HBSafeValue(obj, key);
-        if (![v isEqualToString:@"<unavailable>"]) {
-            [s appendFormat:@" %@=%@", key, v];
-        }
-    }
-    return s;
-}
-
-static NSString *HBLayerLine(CALayer *layer, NSUInteger depth) {
-    if (!layer) return @"";
-    NSString *indent = [@"" stringByPaddingToLength:MIN(depth * 2, 24)
-                                         withString:@" "
-                                    startingAtIndex:0];
-    return [NSString stringWithFormat:
-            @"%@L%lu %@ frame=%@ bounds=%@ z=%.1f hidden=%d opacity=%.2f sublayers=%lu%@\n",
-            indent,
-            (unsigned long)depth,
-            NSStringFromClass(layer.class),
-            NSStringFromCGRect(layer.frame),
-            NSStringFromCGRect(layer.bounds),
-            layer.zPosition,
-            layer.hidden,
-            layer.opacity,
-            (unsigned long)layer.sublayers.count,
-            HBInterestingRuntimeValues(layer)];
-}
-
-static void HBAppendLayerChain(CALayer *layer, NSMutableString *dump) {
-    [dump appendString:@"  LAYER CHAIN (host -> superlayers)\n"];
-    CALayer *cur = layer;
-    for (NSUInteger i = 0; cur && i < 14; i++, cur = cur.superlayer) {
-        [dump appendString:HBLayerLine(cur, i)];
-    }
-}
-
-static void HBAppendSiblingLayers(CALayer *layer, NSMutableString *dump) {
-    CALayer *parent = layer.superlayer;
-    if (!parent) return;
-    [dump appendFormat:@"  SIBLING LAYERS parent=%@ count=%lu\n",
-     NSStringFromClass(parent.class), (unsigned long)parent.sublayers.count];
-
-    NSUInteger idx = [parent.sublayers indexOfObject:layer];
-    NSInteger start = MAX(0, (NSInteger)idx - 4);
-    NSInteger end = MIN((NSInteger)parent.sublayers.count - 1, (NSInteger)idx + 4);
-    for (NSInteger i = start; i <= end; i++) {
-        CALayer *sib = parent.sublayers[(NSUInteger)i];
-        [dump appendFormat:@"   [%ld]%@ %@ frame=%@ z=%.1f hidden=%d opacity=%.2f%@\n",
-         (long)i,
-         sib == layer ? @" *HOST*" : @"",
-         NSStringFromClass(sib.class),
-         NSStringFromCGRect(sib.frame),
-         sib.zPosition,
-         sib.hidden,
-         sib.opacity,
-         HBInterestingRuntimeValues(sib)];
-    }
-}
-
-static void HBAppendViewAncestors(UIView *view, NSMutableString *dump) {
-    [dump appendString:@"  VIEW CHAIN (context host -> ancestors)\n"];
-    UIView *cur = view;
-    for (NSUInteger i = 0; cur && i < 14; i++, cur = cur.superview) {
-        [dump appendFormat:@"   V%lu %@ frame=%@ bounds=%@ hidden=%d alpha=%.2f layer=%@%@\n",
-         (unsigned long)i,
-         NSStringFromClass(cur.class),
-         NSStringFromCGRect(cur.frame),
-         NSStringFromCGRect(cur.bounds),
-         cur.hidden,
-         cur.alpha,
-         NSStringFromClass(cur.layer.class),
-         HBInterestingRuntimeValues(cur)];
-    }
-}
-
-static void HBCollectContextHosts(UIView *root, NSMutableArray<UIView *> *out, NSUInteger depth) {
-    if (!root || depth > 22) return;
-    NSString *name = NSStringFromClass(root.class) ?: @"";
-    if ([name containsString:@"_UIContextLayerHostView"]) {
-        [out addObject:root];
-    }
-    for (UIView *sub in root.subviews) {
-        HBCollectContextHosts(sub, out, depth + 1);
-    }
-}
-
-static void HBSnapshot(void) {
-    if (!HBIsCarPlayApp()) return;
-
-    NSMutableArray<UIView *> *hosts = [NSMutableArray array];
-
+static UIWindow *HBFindBaseCarPlayWindow(void) {
+    UIWindow *best = nil;
     for (UIScene *raw in UIApplication.sharedApplication.connectedScenes) {
         if (![raw isKindOfClass:UIWindowScene.class]) continue;
         UIWindowScene *scene = (UIWindowScene *)raw;
         if (!HBSceneLooksCarPlay(scene)) continue;
-
         for (UIWindow *w in scene.windows) {
             if (w.hidden || w.alpha <= 0.01) continue;
-            NSString *wc = NSStringFromClass(w.class) ?: @"";
-            if ([wc isEqualToString:@"VMLPassthroughWindow"]) continue;
-            UIView *root = w.rootViewController.view;
-            if (root) HBCollectContextHosts(root, hosts, 0);
+            NSString *cn = NSStringFromClass(w.class) ?: @"";
+            if ([cn isEqualToString:@"VMLPassthroughWindow"]) continue;
+            if (!best || w.windowLevel > best.windowLevel) best = w;
         }
     }
-
-    NSMutableString *signature = [NSMutableString string];
-    NSMutableString *dump = [NSMutableString string];
-
-    [signature appendFormat:@"count=%lu;", (unsigned long)hosts.count];
-    [dump appendFormat:@"===== CONTEXT SNAPSHOT hosts=%lu =====\n", (unsigned long)hosts.count];
-
-    NSUInteger n = 0;
-    for (UIView *host in hosts) {
-        n++;
-        CGRect screenRect = CGRectZero;
-        @try { screenRect = [host convertRect:host.bounds toView:nil]; } @catch (__unused NSException *e) {}
-
-        [signature appendFormat:@"%@:%@:%@:%d:%.2f;",
-         NSStringFromClass(host.class),
-         NSStringFromCGRect(host.frame),
-         NSStringFromCGRect(screenRect),
-         host.hidden,
-         host.alpha];
-
-        [dump appendFormat:@"HOST #%lu %@ frame=%@ screen=%@ hidden=%d alpha=%.2f%@\n",
-         (unsigned long)n,
-         NSStringFromClass(host.class),
-         NSStringFromCGRect(host.frame),
-         NSStringFromCGRect(screenRect),
-         host.hidden,
-         host.alpha,
-         HBInterestingRuntimeValues(host)];
-
-        HBAppendViewAncestors(host, dump);
-        HBAppendLayerChain(host.layer, dump);
-        HBAppendSiblingLayers(host.layer, dump);
+    return best;
+}
+static NSNumber *HBSafeNumber(id obj, NSString *key) {
+    @try {
+        id v = [obj valueForKey:key];
+        return [v isKindOfClass:NSNumber.class] ? v : nil;
+    } @catch (__unused NSException *e) { return nil; }
+}
+static void HBCleanup(void) {
+    @try { [gTAHostLayer removeFromSuperlayer]; } @catch (__unused NSException *e) {}
+    gTAHostLayer = nil;
+    gTARootLayer = nil;
+    gTAContext = nil;
+    gTAWindow = nil;
+}
+static BOOL HBCreateContextTest(UIWindow *window) {
+    if (!window || gTADisabled) return NO;
+    Class CAContextClass = NSClassFromString(@"CAContext");
+    Class CALayerHostClass = NSClassFromString(@"CALayerHost");
+    if (!CAContextClass || !CALayerHostClass) {
+        HBLog(@"UNAVAILABLE CAContext=%@ CALayerHost=%@", CAContextClass, CALayerHostClass);
+        gTADisabled = YES;
+        return NO;
     }
 
-    [dump appendString:@"===== END CONTEXT SNAPSHOT ====="];
+    @try {
+        id ctx = nil;
+        SEL contextWithOptions = NSSelectorFromString(@"contextWithOptions:");
+        SEL contextWithId = NSSelectorFromString(@"contextWithId:");
+        if ([CAContextClass respondsToSelector:contextWithOptions]) {
+            ctx = ((id(*)(id,SEL,id))objc_msgSend)(CAContextClass, contextWithOptions, @{});
+        } else if ([CAContextClass respondsToSelector:contextWithId]) {
+            ctx = ((id(*)(id,SEL,unsigned int))objc_msgSend)(CAContextClass, contextWithId, 0);
+        }
+        if (!ctx) {
+            HBLog(@"FAILED create CAContext (no supported constructor)");
+            gTADisabled = YES;
+            return NO;
+        }
 
-    if (gLastSignature && [gLastSignature isEqualToString:signature]) return;
-    gLastSignature = [signature copy];
-    HBLog(@"%@", dump);
+        CALayer *root = [CALayer layer];
+        root.frame = CGRectMake(0, 0, 80, 80);
+        root.backgroundColor = UIColor.clearColor.CGColor;
+
+        CAShapeLayer *circle = [CAShapeLayer layer];
+        circle.frame = root.bounds;
+        circle.path = [UIBezierPath bezierPathWithOvalInRect:CGRectInset(root.bounds, 5, 5)].CGPath;
+        circle.fillColor = UIColor.whiteColor.CGColor;
+        circle.strokeColor = UIColor.systemRedColor.CGColor;
+        circle.lineWidth = 6.0;
+        [root addSublayer:circle];
+
+        CATextLayer *text = [CATextLayer layer];
+        text.frame = CGRectMake(0, 22, 80, 36);
+        text.string = @"TA";
+        text.alignmentMode = kCAAlignmentCenter;
+        text.fontSize = 24;
+        text.foregroundColor = UIColor.blackColor.CGColor;
+        text.contentsScale = UIScreen.mainScreen.scale;
+        [root addSublayer:text];
+
+        BOOL setLayer = NO;
+        SEL setLayerSel = NSSelectorFromString(@"setLayer:");
+        if ([ctx respondsToSelector:setLayerSel]) {
+            ((void(*)(id,SEL,id))objc_msgSend)(ctx, setLayerSel, root);
+            setLayer = YES;
+        } else {
+            @try { [ctx setValue:root forKey:@"layer"]; setLayer = YES; }
+            @catch (__unused NSException *e) {}
+        }
+        if (!setLayer) {
+            HBLog(@"FAILED CAContext setLayer");
+            gTADisabled = YES;
+            return NO;
+        }
+
+        NSNumber *cid = HBSafeNumber(ctx, @"contextId");
+        if (!cid) cid = HBSafeNumber(ctx, @"contextID");
+        if (!cid) {
+            HBLog(@"FAILED read created contextId");
+            gTADisabled = YES;
+            return NO;
+        }
+
+        CALayer *host = [CALayerHostClass layer];
+        SEL setContextId = NSSelectorFromString(@"setContextId:");
+        SEL setContextID = NSSelectorFromString(@"setContextID:");
+        if ([host respondsToSelector:setContextId]) {
+            ((void(*)(id,SEL,unsigned int))objc_msgSend)(host, setContextId, cid.unsignedIntValue);
+        } else if ([host respondsToSelector:setContextID]) {
+            ((void(*)(id,SEL,unsigned int))objc_msgSend)(host, setContextID, cid.unsignedIntValue);
+        } else {
+            @try { [host setValue:cid forKey:@"contextId"]; }
+            @catch (__unused NSException *e) {
+                HBLog(@"FAILED CALayerHost setContextId=%@", cid);
+                gTADisabled = YES;
+                return NO;
+            }
+        }
+
+        host.frame = CGRectMake(330, 18, 80, 80);
+        host.zPosition = 1000000.0;
+
+        // Put our CALayerHost at the CarPlay window layer level, not inside a remote host.
+        [window.layer addSublayer:host];
+
+        gTAContext = ctx;
+        gTARootLayer = root;
+        gTAHostLayer = host;
+        gTAWindow = window;
+        HBLog(@"CREATED own CAContext id=%@ host=%@ window=%@ level=%.1f frame=%@",
+              cid, NSStringFromClass(host.class), NSStringFromClass(window.class),
+              window.windowLevel, NSStringFromCGRect(host.frame));
+        return YES;
+    } @catch (NSException *e) {
+        HBLog(@"EXCEPTION %@ reason=%@ — disabling test", e.name, e.reason);
+        HBCleanup();
+        gTADisabled = YES;
+        return NO;
+    }
 }
-
 static void HBTick(void) {
-    HBSnapshot();
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 700 * NSEC_PER_MSEC),
-                   dispatch_get_main_queue(), ^{
-        HBTick();
-    });
-}
+    if (!HBIsCarPlayApp()) return;
+    UIWindow *w = HBFindBaseCarPlayWindow();
 
+    if (!w) {
+        if (gTAHostLayer) { HBLog(@"DETACH no CarPlay window"); HBCleanup(); }
+    } else if (!gTAHostLayer || gTAWindow != w || gTAHostLayer.superlayer != w.layer) {
+        HBCleanup();
+        HBCreateContextTest(w);
+    } else {
+        // Keep only our host layer ordered last inside the chosen local window.
+        @try {
+            [gTAHostLayer removeFromSuperlayer];
+            [w.layer addSublayer:gTAHostLayer];
+        } @catch (__unused NSException *e) {}
+    }
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC),
+                   dispatch_get_main_queue(), ^{ HBTick(); });
+}
 %ctor {
     @autoreleasepool {
         if (!HBIsCarPlayApp()) return;
-        HBLog(@"TA LAYER PROBE 16.38 ACTIVE — READ ONLY / NO UI OR LAYER MUTATION");
-        dispatch_async(dispatch_get_main_queue(), ^{
-            HBTick();
-        });
+        HBLog(@"TA CONTEXT TEST 16.39 ACTIVE — experimental own CAContext / original bubble untouched");
+        dispatch_async(dispatch_get_main_queue(), ^{ HBTick(); });
     }
 }
