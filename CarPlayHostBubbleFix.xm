@@ -2,7 +2,7 @@
 #import <QuartzCore/QuartzCore.h>
 #import <Foundation/Foundation.h>
 
-// CarPlayHostBubbleFix.xm — TA Native Window Test 16.55
+// CarPlayHostBubbleFix.xm — TA Native Window Test 16.56
 // Uses UIKit's own UIWindowScene pipeline (proven in 16.54 to create displayId=2 contexts).
 // Creates one tiny native CarPlay UIWindow test. No manual CAContext/CALayerHost.
 
@@ -10,7 +10,7 @@ static NSString *const P=@"/var/mobile/VMLHostSniffer.txt";
 static UIWindow *gTest=nil;
 static BOOL IsCP(){return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.CarPlayApp"];}
 static void L(NSString*f,...){va_list a;va_start(a,f);NSString*m=[[NSString alloc]initWithFormat:f arguments:a];va_end(a);
- NSString*s=[NSString stringWithFormat:@"[TA-NATIVEWIN-16.55] %@\n",m?:@""];NSFileHandle*h=[NSFileHandle fileHandleForWritingAtPath:P];
+ NSString*s=[NSString stringWithFormat:@"[TA-NATIVEOVER-16.56] %@\n",m?:@""];NSFileHandle*h=[NSFileHandle fileHandleForWritingAtPath:P];
  if(!h)[s writeToFile:P atomically:YES encoding:NSUTF8StringEncoding error:nil];else @try{[h seekToEndOfFile];[h writeData:[s dataUsingEncoding:NSUTF8StringEncoding]];[h closeFile];}@catch(__unused NSException*e){}}
 static UIWindowScene *Scene(){
  for(UIScene *raw in UIApplication.sharedApplication.connectedScenes){
@@ -28,8 +28,13 @@ static void Build(){
  UIViewController*vc=[UIViewController new];vc.view.backgroundColor=UIColor.clearColor;gTest.rootViewController=vc;
  UIView*v=[[UIView alloc]initWithFrame:CGRectMake(4,4,84,84)];v.backgroundColor=UIColor.systemYellowColor;v.layer.cornerRadius=42;
  v.layer.borderWidth=7;v.layer.borderColor=UIColor.systemGreenColor.CGColor;[vc.view addSubview:v];
- UILabel*l=[[UILabel alloc]initWithFrame:v.bounds];l.text=@"55";l.textAlignment=NSTextAlignmentCenter;l.font=[UIFont boldSystemFontOfSize:28];l.textColor=UIColor.blackColor;[v addSubview:l];
+ UILabel*l=[[UILabel alloc]initWithFrame:v.bounds];l.text=@"56";l.textAlignment=NSTextAlignmentCenter;l.font=[UIFont boldSystemFontOfSize:28];l.textColor=UIColor.blackColor;[v addSubview:l];
  gTest.hidden=NO;
+ // Keep the UIKit-native CarPlay window alive and above ordinary local windows.
+ // This test deliberately avoids manual CAContext/CALayerHost.
+ dispatch_after(dispatch_time(DISPATCH_TIME_NOW,1*NSEC_PER_SEC),dispatch_get_main_queue(),^{
+   if(gTest){ gTest.windowLevel=3000.0; gTest.hidden=NO; L(@"ALIVE level=%.1f scene=%@",gTest.windowLevel,gTest.windowScene.session.persistentIdentifier); }
+ });
  dispatch_after(dispatch_time(DISPATCH_TIME_NOW,300*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
   @try{ id ctx=[gTest.layer valueForKey:@"context"];
    L(@"CREATED window=%@ level=%.1f frame=%@ layer=%@ context=%@ contextId=%@ displayId=%@ options=%@",
@@ -38,4 +43,4 @@ static void Build(){
   }@catch(NSException*e){L(@"INSPECT EXCEPTION %@ %@",e.name,e.reason);}
  });
 }
-%ctor{@autoreleasepool{if(!IsCP())return;L(@"TA NATIVE WINDOW TEST 16.55 ACTIVE");dispatch_after(dispatch_time(DISPATCH_TIME_NOW,1500*NSEC_PER_MSEC),dispatch_get_main_queue(),^{Build();});}}
+%ctor{@autoreleasepool{if(!IsCP())return;L(@"TA NATIVE OVERLAY TEST 16.56 ACTIVE");dispatch_after(dispatch_time(DISPATCH_TIME_NOW,1500*NSEC_PER_MSEC),dispatch_get_main_queue(),^{Build();});}}
