@@ -1,37 +1,38 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <Foundation/Foundation.h>
+#import <objc/runtime.h>
 
 // CarPlayHostBubbleFix.xm
-// TA Platter Bridge 16.37
-// Experimental: create ONE small bubble sibling immediately above a remote
-// _UIScenePresentationView inside the same Dashboard host hierarchy.
-// Never touches DBNotificationWindow and never reparents/removes the V15.9 primary bubble.
+// TA Layer Probe 16.38
+// READ-ONLY probe. No bubble, no mirror, no addSubview, no layer mutation.
+// Captures the layer/superlayer chain around _UIContextLayerHostView and
+// its _UISceneLayerHostContainerView / _UIScenePresentationView ancestors.
 
 static NSString * const HBLogPath = @"/var/mobile/VMLHostSniffer.txt";
-static UIView *gPlatterBubble = nil;
-static __weak UIView *gPlatterHost = nil;
-static NSString *gLastHostDesc = nil;
+static NSString *gLastSignature = nil;
 
 static BOOL HBIsCarPlayApp(void) {
     return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.CarPlayApp"];
 }
 
 static void HBLog(NSString *fmt, ...) {
-    va_list args; va_start(args, fmt);
+    va_list args;
+    va_start(args, fmt);
     NSString *msg = [[NSString alloc] initWithFormat:fmt arguments:args];
     va_end(args);
-    NSString *line = [NSString stringWithFormat:@"[TA-PLATTER-16.37] %@\n", msg ?: @""];
+
+    NSString *line = [NSString stringWithFormat:@"[TA-LAYER-16.38] %@\n", msg ?: @""];
     NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:HBLogPath];
     if (!fh) {
         [line writeToFile:HBLogPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
-    } else {
-        @try {
-            [fh seekToEndOfFile];
-            [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
-            [fh closeFile];
-        } @catch (__unused NSException *e) {}
+        return;
     }
+    @try {
+        [fh seekToEndOfFile];
+        [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+        [fh closeFile];
+    } @catch (__unused NSException *e) {}
 }
 
 static BOOL HBSceneLooksCarPlay(UIWindowScene *scene) {
@@ -42,131 +43,187 @@ static BOOL HBSceneLooksCarPlay(UIWindowScene *scene) {
     return s.width > s.height && s.width >= 300 && s.height <= 500;
 }
 
-static BOOL HBIsPresentation(UIView *v) {
-    return [NSStringFromClass(v.class) containsString:@"_UIScenePresentationView"];
+static NSString *HBSafeValue(id obj, NSString *key) {
+    if (!obj || !key.length) return @"nil";
+    @try {
+        id value = [obj valueForKey:key];
+        if (!value) return @"nil";
+        NSString *s = [value description];
+        if (s.length > 180) s = [s substringToIndex:180];
+        return s ?: @"?";
+    } @catch (__unused NSException *e) {
+        return @"<unavailable>";
+    }
 }
 
-static UIView *HBFindBestPresentation(UIView *root, NSUInteger depth) {
-    if (!root || depth > 20 || root.hidden) return nil;
-    UIView *best = nil;
-    CGFloat bestArea = 0;
-    if (HBIsPresentation(root) && root.alpha > 0.01) {
-        CGFloat a = CGRectGetWidth(root.bounds) * CGRectGetHeight(root.bounds);
-        // Prefer substantial hosted app surfaces, not tiny icons/cards.
-        if (a >= 20000) { best = root; bestArea = a; }
-    }
-    for (UIView *sub in root.subviews) {
-        UIView *candidate = HBFindBestPresentation(sub, depth + 1);
-        if (candidate) {
-            CGFloat a = CGRectGetWidth(candidate.bounds) * CGRectGetHeight(candidate.bounds);
-            if (a > bestArea) { best = candidate; bestArea = a; }
+static NSString *HBInterestingRuntimeValues(id obj) {
+    if (!obj) return @"";
+    NSArray<NSString *> *keys = @[
+        @"contextId", @"contextID", @"context",
+        @"hostContextIdentifier", @"layerContext",
+        @"windowServerHitTestContextID",
+        @"presentationContext", @"sceneIdentifier"
+    ];
+    NSMutableString *s = [NSMutableString string];
+    for (NSString *key in keys) {
+        NSString *v = HBSafeValue(obj, key);
+        if (![v isEqualToString:@"<unavailable>"]) {
+            [s appendFormat:@" %@=%@", key, v];
         }
     }
-    return best;
+    return s;
 }
 
-static UIView *HBFindPresentationInCarPlay(void) {
-    UIView *best = nil;
-    CGFloat bestArea = 0;
+static NSString *HBLayerLine(CALayer *layer, NSUInteger depth) {
+    if (!layer) return @"";
+    NSString *indent = [@"" stringByPaddingToLength:MIN(depth * 2, 24)
+                                         withString:@" "
+                                    startingAtIndex:0];
+    return [NSString stringWithFormat:
+            @"%@L%lu %@ frame=%@ bounds=%@ z=%.1f hidden=%d opacity=%.2f sublayers=%lu%@\n",
+            indent,
+            (unsigned long)depth,
+            NSStringFromClass(layer.class),
+            NSStringFromCGRect(layer.frame),
+            NSStringFromCGRect(layer.bounds),
+            layer.zPosition,
+            layer.hidden,
+            layer.opacity,
+            (unsigned long)layer.sublayers.count,
+            HBInterestingRuntimeValues(layer)];
+}
+
+static void HBAppendLayerChain(CALayer *layer, NSMutableString *dump) {
+    [dump appendString:@"  LAYER CHAIN (host -> superlayers)\n"];
+    CALayer *cur = layer;
+    for (NSUInteger i = 0; cur && i < 14; i++, cur = cur.superlayer) {
+        [dump appendString:HBLayerLine(cur, i)];
+    }
+}
+
+static void HBAppendSiblingLayers(CALayer *layer, NSMutableString *dump) {
+    CALayer *parent = layer.superlayer;
+    if (!parent) return;
+    [dump appendFormat:@"  SIBLING LAYERS parent=%@ count=%lu\n",
+     NSStringFromClass(parent.class), (unsigned long)parent.sublayers.count];
+
+    NSUInteger idx = [parent.sublayers indexOfObject:layer];
+    NSInteger start = MAX(0, (NSInteger)idx - 4);
+    NSInteger end = MIN((NSInteger)parent.sublayers.count - 1, (NSInteger)idx + 4);
+    for (NSInteger i = start; i <= end; i++) {
+        CALayer *sib = parent.sublayers[(NSUInteger)i];
+        [dump appendFormat:@"   [%ld]%@ %@ frame=%@ z=%.1f hidden=%d opacity=%.2f%@\n",
+         (long)i,
+         sib == layer ? @" *HOST*" : @"",
+         NSStringFromClass(sib.class),
+         NSStringFromCGRect(sib.frame),
+         sib.zPosition,
+         sib.hidden,
+         sib.opacity,
+         HBInterestingRuntimeValues(sib)];
+    }
+}
+
+static void HBAppendViewAncestors(UIView *view, NSMutableString *dump) {
+    [dump appendString:@"  VIEW CHAIN (context host -> ancestors)\n"];
+    UIView *cur = view;
+    for (NSUInteger i = 0; cur && i < 14; i++, cur = cur.superview) {
+        [dump appendFormat:@"   V%lu %@ frame=%@ bounds=%@ hidden=%d alpha=%.2f layer=%@%@\n",
+         (unsigned long)i,
+         NSStringFromClass(cur.class),
+         NSStringFromCGRect(cur.frame),
+         NSStringFromCGRect(cur.bounds),
+         cur.hidden,
+         cur.alpha,
+         NSStringFromClass(cur.layer.class),
+         HBInterestingRuntimeValues(cur)];
+    }
+}
+
+static void HBCollectContextHosts(UIView *root, NSMutableArray<UIView *> *out, NSUInteger depth) {
+    if (!root || depth > 22) return;
+    NSString *name = NSStringFromClass(root.class) ?: @"";
+    if ([name containsString:@"_UIContextLayerHostView"]) {
+        [out addObject:root];
+    }
+    for (UIView *sub in root.subviews) {
+        HBCollectContextHosts(sub, out, depth + 1);
+    }
+}
+
+static void HBSnapshot(void) {
+    if (!HBIsCarPlayApp()) return;
+
+    NSMutableArray<UIView *> *hosts = [NSMutableArray array];
+
     for (UIScene *raw in UIApplication.sharedApplication.connectedScenes) {
         if (![raw isKindOfClass:UIWindowScene.class]) continue;
         UIWindowScene *scene = (UIWindowScene *)raw;
         if (!HBSceneLooksCarPlay(scene)) continue;
+
         for (UIWindow *w in scene.windows) {
+            if (w.hidden || w.alpha <= 0.01) continue;
             NSString *wc = NSStringFromClass(w.class) ?: @"";
-            if ([wc isEqualToString:@"VMLPassthroughWindow"] || w.hidden || w.alpha <= 0.01) continue;
+            if ([wc isEqualToString:@"VMLPassthroughWindow"]) continue;
             UIView *root = w.rootViewController.view;
-            if (!root) continue;
-            UIView *p = HBFindBestPresentation(root, 0);
-            if (p) {
-                CGFloat a = CGRectGetWidth(p.bounds) * CGRectGetHeight(p.bounds);
-                if (a > bestArea) { best = p; bestArea = a; }
-            }
+            if (root) HBCollectContextHosts(root, hosts, 0);
         }
     }
-    return best;
-}
 
-static UIView *HBMakeTestBubble(void) {
-    CGFloat size = 72.0;
-    UIView *b = [[UIView alloc] initWithFrame:CGRectMake(0, 0, size, size)];
-    b.backgroundColor = UIColor.whiteColor;
-    b.layer.cornerRadius = size / 2.0;
-    b.layer.borderWidth = 5.0;
-    b.layer.borderColor = UIColor.systemRedColor.CGColor;
-    b.userInteractionEnabled = NO;
-    b.accessibilityIdentifier = @"TAPlatterBubble16.37";
+    NSMutableString *signature = [NSMutableString string];
+    NSMutableString *dump = [NSMutableString string];
 
-    UILabel *l = [[UILabel alloc] initWithFrame:b.bounds];
-    l.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    l.text = @"TA";
-    l.textAlignment = NSTextAlignmentCenter;
-    l.textColor = UIColor.blackColor;
-    l.font = [UIFont boldSystemFontOfSize:25];
-    l.userInteractionEnabled = NO;
-    [b addSubview:l];
-    return b;
-}
+    [signature appendFormat:@"count=%lu;", (unsigned long)hosts.count];
+    [dump appendFormat:@"===== CONTEXT SNAPSHOT hosts=%lu =====\n", (unsigned long)hosts.count];
 
-static void HBDetach(void) {
-    if (gPlatterBubble) {
-        HBLog(@"DETACH host=%@", NSStringFromClass(gPlatterBubble.superview.class));
-        [gPlatterBubble removeFromSuperview];
+    NSUInteger n = 0;
+    for (UIView *host in hosts) {
+        n++;
+        CGRect screenRect = CGRectZero;
+        @try { screenRect = [host convertRect:host.bounds toView:nil]; } @catch (__unused NSException *e) {}
+
+        [signature appendFormat:@"%@:%@:%@:%d:%.2f;",
+         NSStringFromClass(host.class),
+         NSStringFromCGRect(host.frame),
+         NSStringFromCGRect(screenRect),
+         host.hidden,
+         host.alpha];
+
+        [dump appendFormat:@"HOST #%lu %@ frame=%@ screen=%@ hidden=%d alpha=%.2f%@\n",
+         (unsigned long)n,
+         NSStringFromClass(host.class),
+         NSStringFromCGRect(host.frame),
+         NSStringFromCGRect(screenRect),
+         host.hidden,
+         host.alpha,
+         HBInterestingRuntimeValues(host)];
+
+        HBAppendViewAncestors(host, dump);
+        HBAppendLayerChain(host.layer, dump);
+        HBAppendSiblingLayers(host.layer, dump);
     }
-    gPlatterBubble = nil;
-    gPlatterHost = nil;
-    gLastHostDesc = nil;
+
+    [dump appendString:@"===== END CONTEXT SNAPSHOT ====="];
+
+    if (gLastSignature && [gLastSignature isEqualToString:signature]) return;
+    gLastSignature = [signature copy];
+    HBLog(@"%@", dump);
 }
 
 static void HBTick(void) {
-    if (!HBIsCarPlayApp()) return;
-
-    UIView *presentation = HBFindPresentationInCarPlay();
-    UIView *host = presentation.superview;
-
-    // Key rule: sibling of _UIScenePresentationView, never child of the remote host container.
-    if (!presentation || !host) {
-        if (gPlatterBubble) HBDetach();
-    } else {
-        NSString *desc = [NSString stringWithFormat:@"%@ frame=%@ presentation=%@ pframe=%@",
-                          NSStringFromClass(host.class), NSStringFromCGRect(host.bounds),
-                          NSStringFromClass(presentation.class), NSStringFromCGRect(presentation.frame)];
-
-        if (!gPlatterBubble || gPlatterHost != host || gPlatterBubble.superview != host) {
-            HBDetach();
-            gPlatterHost = host;
-            gPlatterBubble = HBMakeTestBubble();
-
-            NSUInteger idx = [host.subviews indexOfObject:presentation];
-            if (idx != NSNotFound && idx + 1 <= host.subviews.count) {
-                [host insertSubview:gPlatterBubble aboveSubview:presentation];
-            } else {
-                [host addSubview:gPlatterBubble];
-            }
-
-            CGFloat W = CGRectGetWidth(host.bounds), H = CGRectGetHeight(host.bounds);
-            gPlatterBubble.center = CGPointMake(MAX(42.0, W * 0.18), MAX(42.0, H * 0.50));
-            gPlatterBubble.layer.zPosition = 1000000.0;
-            gLastHostDesc = desc;
-            HBLog(@"ATTACHED SIBLING %@", desc);
-        } else {
-            if (![gLastHostDesc isEqualToString:desc]) {
-                gLastHostDesc = desc;
-                HBLog(@"HOST CHANGED %@", desc);
-            }
-            [host bringSubviewToFront:gPlatterBubble];
-            gPlatterBubble.layer.zPosition = 1000000.0;
-        }
-    }
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 300 * NSEC_PER_MSEC),
-                   dispatch_get_main_queue(), ^{ HBTick(); });
+    HBSnapshot();
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 700 * NSEC_PER_MSEC),
+                   dispatch_get_main_queue(), ^{
+        HBTick();
+    });
 }
 
 %ctor {
     @autoreleasepool {
         if (!HBIsCarPlayApp()) return;
-        HBLog(@"TA PLATTER BRIDGE 16.37 ACTIVE — one TA test bubble / presentation sibling");
-        dispatch_async(dispatch_get_main_queue(), ^{ HBTick(); });
+        HBLog(@"TA LAYER PROBE 16.38 ACTIVE — READ ONLY / NO UI OR LAYER MUTATION");
+        dispatch_async(dispatch_get_main_queue(), ^{
+            HBTick();
+        });
     }
 }
