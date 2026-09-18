@@ -4,7 +4,7 @@
 #import <objc/message.h>
 
 // CarPlayHostBubbleFix.xm
-// TA Context Test 16.41
+// TA Context Test 16.42
 // Uses the constructor proven by 16.40: +[CAContext localContextWithOptions:].
 // Creates ONE independent CAContext-backed TA test surface. Original V15.9 bubble untouched.
 
@@ -22,7 +22,7 @@ static void HBLog(NSString *fmt, ...) {
     va_list args; va_start(args, fmt);
     NSString *msg = [[NSString alloc] initWithFormat:fmt arguments:args];
     va_end(args);
-    NSString *line = [NSString stringWithFormat:@"[TA-CONTEXT-16.41] %@\n", msg ?: @""];
+    NSString *line = [NSString stringWithFormat:@"[TA-CONTEXT-16.42] %@\n", msg ?: @""];
     NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:HBLogPath];
     if (!fh) [line writeToFile:HBLogPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
     else @try { [fh seekToEndOfFile]; [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]]; [fh closeFile]; } @catch (__unused NSException *e) {}
@@ -35,17 +35,30 @@ static BOOL HBSceneLooksCarPlay(UIWindowScene *s) {
 }
 static UIWindow *HBWindow(void) {
     UIWindow *best=nil;
+    CGFloat bestScore=-CGFLOAT_MAX;
     for (UIScene *raw in UIApplication.sharedApplication.connectedScenes) {
         if (![raw isKindOfClass:UIWindowScene.class]) continue;
         UIWindowScene *s=(UIWindowScene *)raw; if (!HBSceneLooksCarPlay(s)) continue;
+        CGSize screen=s.screen.bounds.size;
         for (UIWindow *w in s.windows) {
             if (w.hidden || w.alpha<=0.01) continue;
             NSString *n=NSStringFromClass(w.class) ?: @"";
             if ([n isEqualToString:@"VMLPassthroughWindow"]) continue;
-            // Prefer normal CarPlay content windows, not high-level overlay/notification windows.
-            if (!best || (best.windowLevel != 0 && w.windowLevel == 0)) best=w;
+            if ([n containsString:@"StatusBar"] || [n containsString:@"Notification"] ||
+                [n containsString:@"Alert"] || [n containsString:@"Keyboard"]) continue;
+
+            CGSize z=w.bounds.size;
+            CGFloat area=z.width*z.height;
+            CGFloat screenArea=screen.width*screen.height;
+            BOOL full=(fabs(z.width-screen.width)<2.0 && fabs(z.height-screen.height)<2.0);
+            CGFloat score=(full?1000000.0:0.0)+area-fabs(w.windowLevel)*1000.0;
+            HBLog(@"WINDOW CANDIDATE %@ level=%.1f bounds=%@ full=%d score=%.1f",
+                  n,w.windowLevel,NSStringFromCGRect(w.bounds),full,score);
+            if (score>bestScore) { bestScore=score; best=w; }
         }
     }
+    if (best) HBLog(@"WINDOW SELECTED %@ level=%.1f bounds=%@",
+                    NSStringFromClass(best.class),best.windowLevel,NSStringFromCGRect(best.bounds));
     return best;
 }
 static void HBCleanup(void) {
@@ -107,7 +120,7 @@ static void HBTick(void) {
 %ctor {
     @autoreleasepool {
         if (!HBIsCarPlayApp()) return;
-        HBLog(@"TA CONTEXT TEST 16.41 ACTIVE — localContextWithOptions");
+        HBLog(@"TA CONTEXT TEST 16.42 ACTIVE — localContextWithOptions");
         dispatch_async(dispatch_get_main_queue(),^{HBTick();});
     }
 }
