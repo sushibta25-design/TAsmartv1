@@ -49,7 +49,6 @@ static UIWindow *HBWindow(void) {
 
             CGSize z=w.bounds.size;
             CGFloat area=z.width*z.height;
-            CGFloat screenArea=screen.width*screen.height;
             BOOL full=(fabs(z.width-screen.width)<2.0 && fabs(z.height-screen.height)<2.0);
             CGFloat score=(full?1000000.0:0.0)+area-fabs(w.windowLevel)*1000.0;
             HBLog(@"WINDOW CANDIDATE %@ level=%.1f bounds=%@ full=%d score=%.1f",
