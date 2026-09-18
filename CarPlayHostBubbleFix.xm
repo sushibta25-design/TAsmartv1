@@ -3,11 +3,9 @@
 #import <Foundation/Foundation.h>
 #import <notify.h>
 
-// 16.33: DuoDash host-aware bubble bridge.
-// Prefer the exact superview used by DuoDash's own CNABBubbleView. This puts the
-// VML bubble in the same compositing hierarchy as DuoDash controls, above its
-// AppBridge remote scene hosts. Fall back to the older hosted-surface probe for
-// DuoPhone/other split hosts. The primary VML bubble remains untouched.
+// TA Host Probe 16.34: keep the stable primary bubble untouched.
+// This file only creates a satellite/proxy bubble. Prefer the exact DuoDash
+// CNABBubbleView parent when present; otherwise fall back to the prior hosted-surface path.
 static const char *kVietMapNotify = "com.sushibta.vmlspeedbubble.vmlcarplaysceneactive";
 static UIView *gHostBubble = nil;
 static __weak UIView *gHostCanvas = nil;
@@ -19,6 +17,18 @@ static BOOL gVietMapActive = NO;
 static NSMutableArray<NSNumber *> *gSpeedTokens = nil;
 static const NSInteger kHostBubbleTag = 992500;
 static const NSInteger kHostLabelTag = 992501;
+static NSString * const kHBLogPath = @"/var/mobile/VMLHostSniffer.txt";
+static __weak UIView *gLastLoggedDuoHost = nil;
+static void HBLog(NSString *fmt, ...) {
+    va_list args; va_start(args, fmt);
+    NSString *msg = [[NSString alloc] initWithFormat:fmt arguments:args];
+    va_end(args);
+    NSString *line = [NSString stringWithFormat:@"[TA-HOST-16.34] %@\n", msg ?: @""];
+    NSData *data = [line dataUsingEncoding:NSUTF8StringEncoding];
+    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:kHBLogPath];
+    if (!fh) { [data writeToFile:kHBLogPath atomically:YES]; return; }
+    @try { [fh seekToEndOfFile]; [fh writeData:data]; [fh closeFile]; } @catch (__unused NSException *e) {}
+}
 
 static BOOL HBIsCarPlayApp(void) { return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.CarPlayApp"]; }
 static BOOL HBSceneLooksCarPlay(UIWindowScene *scene) {
@@ -28,37 +38,6 @@ static BOOL HBSceneLooksCarPlay(UIWindowScene *scene) {
     CGSize s = scene.screen.bounds.size;
     return s.width > s.height && s.width >= 300 && s.height <= 500;
 }
-static UIView *HBFindDuoDashBubbleView(UIView *root, NSUInteger depth) {
-    if (!root || depth > 24 || root.hidden || root.alpha <= 0.01) return nil;
-    NSString *name = NSStringFromClass(root.class) ?: @"";
-    if ([name isEqualToString:@"CNABBubbleView"] || [name containsString:@"CNABBubbleView"]) return root;
-    for (UIView *sub in [root.subviews reverseObjectEnumerator]) {
-        UIView *found = HBFindDuoDashBubbleView(sub, depth + 1);
-        if (found) return found;
-    }
-    return nil;
-}
-static UIView *HBFindExactDuoDashHost(UIWindow **windowOut) {
-    UIWindow *bestWindow=nil; UIView *bestHost=nil; CGFloat bestScore=-CGFLOAT_MAX;
-    for (UIScene *raw in UIApplication.sharedApplication.connectedScenes) {
-        if (![raw isKindOfClass:UIWindowScene.class]) continue;
-        UIWindowScene *scene=(UIWindowScene *)raw;
-        if (!HBSceneLooksCarPlay(scene)) continue;
-        for (UIWindow *w in scene.windows) {
-            if (!w || w.hidden || w.alpha<=0.01 || !w.rootViewController.view) continue;
-            if ([NSStringFromClass(w.class) isEqualToString:@"VMLPassthroughWindow"]) continue;
-            UIView *duoBubble=HBFindDuoDashBubbleView(w.rootViewController.view,0);
-            UIView *host=duoBubble.superview;
-            if (!host) continue;
-            CGFloat area=CGRectGetWidth(host.bounds)*CGRectGetHeight(host.bounds);
-            CGFloat score=w.windowLevel*1000000.0+area;
-            if (!bestHost || score>bestScore) { bestWindow=w; bestHost=host; bestScore=score; }
-        }
-    }
-    if (windowOut) *windowOut=bestWindow;
-    return bestHost;
-}
-
 static UIView *HBFindHostContainer(UIView *root, NSUInteger depth) {
     if (!root || depth > 18 || root.hidden || root.alpha <= 0.01) return nil;
     NSString *name = NSStringFromClass(root.class) ?: @"";
@@ -69,14 +48,33 @@ static UIView *HBFindHostContainer(UIView *root, NSUInteger depth) {
     }
     return nil;
 }
+static UIView *HBFindViewNamed(UIView *root, NSString *wanted, NSUInteger depth) {
+    if (!root || depth > 24) return nil;
+    NSString *name = NSStringFromClass(root.class) ?: @"";
+    if ([name isEqualToString:wanted]) return root;
+    for (UIView *sub in [root.subviews reverseObjectEnumerator]) {
+        UIView *found = HBFindViewNamed(sub, wanted, depth + 1);
+        if (found) return found;
+    }
+    return nil;
+}
+static UIView *HBFindDuoDashBubbleHost(UIWindow **windowOut) {
+    for (UIScene *raw in UIApplication.sharedApplication.connectedScenes) {
+        if (![raw isKindOfClass:UIWindowScene.class]) continue;
+        UIWindowScene *scene = (UIWindowScene *)raw;
+        if (!HBSceneLooksCarPlay(scene)) continue;
+        for (UIWindow *w in [scene.windows reverseObjectEnumerator]) {
+            if (!w || w.hidden || w.alpha <= 0.01 || !w.rootViewController.view) continue;
+            UIView *duoBubble = HBFindViewNamed(w.rootViewController.view, @"CNABBubbleView", 0);
+            if (duoBubble.superview) {
+                if (windowOut) *windowOut = w;
+                return duoBubble.superview;
+            }
+        }
+    }
+    return nil;
+}
 static UIWindow *HBFindActiveHostedWindow(UIView **canvasOut) {
-    // First choice: use the exact parent of DuoDash's own bubble. If DuoDash can
-    // keep CNABBubbleView above split panes, a sibling inserted here shares that
-    // same compositor ordering instead of fighting it with UIWindowLevel.
-    UIWindow *duoWindow=nil;
-    UIView *duoHost=HBFindExactDuoDashHost(&duoWindow);
-    if (duoWindow && duoHost) { if (canvasOut) *canvasOut=duoHost; return duoWindow; }
-
     UIWindow *best = nil; UIView *bestCanvas = nil; CGFloat bestScore = -CGFLOAT_MAX;
     for (UIScene *raw in UIApplication.sharedApplication.connectedScenes) {
         if (![raw isKindOfClass:UIWindowScene.class]) continue;
@@ -143,7 +141,29 @@ static void HBStartSpeedReceiver(void){
 static void HBTick(void){
     if(!HBIsCarPlayApp())return; HBReadVietMapState();
     if(gVietMapActive){HBRemoveBubble();}
-    else {UIView *canvas=nil;UIWindow *host=HBFindActiveHostedWindow(&canvas);if(!host||!canvas){HBRemoveBubble();}else{CGFloat size=MAX(84,MIN(112,MAX(CGRectGetHeight(canvas.bounds),1)*.40));if(host!=gHostWindow||canvas!=gHostCanvas||!gHostBubble||gHostBubble.superview!=canvas){HBRemoveBubble();gHostWindow=host;gHostCanvas=canvas;gHostBubble=HBMakeBubble(size);[canvas addSubview:gHostBubble];}if(!gHostDragging)gHostBubble.frame=HBFrameForCanvas(canvas,size);gHostBubble.layer.zPosition=CGFLOAT_MAX;[canvas bringSubviewToFront:gHostBubble];UILabel*l=(UILabel*)[gHostBubble viewWithTag:kHostLabelTag];if(l)l.text=HBSpeedText();gHostBubble.hidden=NO;gHostBubble.alpha=1;gHostBubble.layer.hidden=NO;gHostBubble.layer.zPosition=CGFLOAT_MAX;gHostBubble.userInteractionEnabled=YES;[canvas bringSubviewToFront:gHostBubble];}}
+    else {
+        UIView *canvas=nil; UIWindow *host=nil;
+        canvas=HBFindDuoDashBubbleHost(&host);
+        BOOL duoHost=(canvas!=nil);
+        if(!canvas) host=HBFindActiveHostedWindow(&canvas);
+        if(!host||!canvas){HBRemoveBubble();}
+        else {
+            if(duoHost && canvas!=gLastLoggedDuoHost){
+                gLastLoggedDuoHost=canvas;
+                HBLog(@"CNABBubbleView FOUND host=%@ window=%@ level=%.1f frame=%@ bounds=%@ subviews=%lu",
+                      NSStringFromClass(canvas.class), NSStringFromClass(host.class), host.windowLevel,
+                      NSStringFromCGRect(canvas.frame), NSStringFromCGRect(canvas.bounds), (unsigned long)canvas.subviews.count);
+            }
+            CGFloat size=MAX(84,MIN(112,MAX(CGRectGetHeight(canvas.bounds),1)*.40));
+            if(host!=gHostWindow||canvas!=gHostCanvas||!gHostBubble||gHostBubble.superview!=canvas){
+                HBRemoveBubble(); gHostWindow=host; gHostCanvas=canvas; gHostBubble=HBMakeBubble(size); [canvas addSubview:gHostBubble];
+                HBLog(@"PROXY ATTACHED mode=%@ host=%@ window=%@ level=%.1f", duoHost?@"DUODASH":@"FALLBACK", NSStringFromClass(canvas.class), NSStringFromClass(host.class), host.windowLevel);
+            }
+            if(!gHostDragging)gHostBubble.frame=HBFrameForCanvas(canvas,size);
+            UILabel*l=(UILabel*)[gHostBubble viewWithTag:kHostLabelTag];if(l)l.text=HBSpeedText();
+            gHostBubble.hidden=NO;gHostBubble.alpha=1;gHostBubble.layer.hidden=NO;gHostBubble.layer.zPosition=CGFLOAT_MAX;gHostBubble.userInteractionEnabled=YES;[canvas bringSubviewToFront:gHostBubble];
+        }
+    }
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,150*NSEC_PER_MSEC),dispatch_get_main_queue(),^{HBTick();});
 }
-%ctor { @autoreleasepool { if(!HBIsCarPlayApp())return; HBStartSpeedReceiver(); int token=0; uint32_t s=notify_register_dispatch(kVietMapNotify,&token,dispatch_get_main_queue(),^(int incoming){gVietMapToken=incoming;HBReadVietMapState();}); if(s==NOTIFY_STATUS_OK){gVietMapToken=token;HBReadVietMapState();} dispatch_async(dispatch_get_main_queue(),^{HBTick();}); } }
+%ctor { @autoreleasepool { if(!HBIsCarPlayApp())return; HBLog(@"TA HOST PROBE ACTIVE bundle=%@ process=%@", NSBundle.mainBundle.bundleIdentifier, NSProcessInfo.processInfo.processName); HBStartSpeedReceiver(); int token=0; uint32_t s=notify_register_dispatch(kVietMapNotify,&token,dispatch_get_main_queue(),^(int incoming){gVietMapToken=incoming;HBReadVietMapState();}); if(s==NOTIFY_STATUS_OK){gVietMapToken=token;HBReadVietMapState();} dispatch_async(dispatch_get_main_queue(),^{HBTick();}); } }
