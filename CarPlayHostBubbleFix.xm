@@ -36,7 +36,7 @@ static void Build(){
  void (^orderNow)(void)=^{
    @try{
     id mine=[gTest.layer valueForKey:@"context"]; unsigned mid=[[mine valueForKey:@"contextId"] unsignedIntValue];
-    NSArray *all=[NSClassFromString(@"CAContext") performSelector:NSSelectorFromString(@"allContexts")];
+    NSArray *all=((id(*)(id,SEL))objc_msgSend)(NSClassFromString(@"CAContext"),NSSelectorFromString(@"allContexts"));
     NSMutableArray *ids=[NSMutableArray array];
     for(id x in all){NSNumber*d=[x valueForKey:@"displayId"];NSNumber*i=[x valueForKey:@"contextId"];
       if(d.intValue==2 && i.unsignedIntValue && i.unsignedIntValue!=mid){[ids addObject:i];
