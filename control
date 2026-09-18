@@ -1,8 +1,8 @@
 Package: com.sushibta.vmlspeedbubble
 Name: VMLSpeedBubble
-Version: 16.32-duophone-split-satellite1
+Version: 16.33-duodash-hostbridge1
 Architecture: iphoneos-arm64e
-Description: Stable 16.31 baseline plus the proven 16.29 hosted-surface satellite bubble for DuoPhone split, while preserving Home hide, Dashboard visibility, VietMap hide, YouTube force-show and weather.
+Description: DuoDash host-aware VML bubble: attaches beside CNABBubbleView in the exact DuoDash host hierarchy, with hosted-surface fallback for DuoPhone/other split hosts.
 Maintainer: sushibta25-design
 Author: sushibta25-design
 Section: Tweaks
