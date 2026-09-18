@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <Foundation/Foundation.h>
+#import <objc/message.h>
 
 // CarPlayHostBubbleFix.xm — TA Native Window Test 16.56
 // Uses UIKit's own UIWindowScene pipeline (proven in 16.54 to create displayId=2 contexts).
@@ -30,6 +31,23 @@ static void Build(){
  v.layer.borderWidth=7;v.layer.borderColor=UIColor.systemGreenColor.CGColor;[vc.view addSubview:v];
  UILabel*l=[[UILabel alloc]initWithFrame:v.bounds];l.text=@"56";l.textAlignment=NSTextAlignmentCenter;l.font=[UIFont boldSystemFontOfSize:28];l.textColor=UIColor.blackColor;[v addSubview:l];
  gTest.hidden=NO;
+ // Order the UIKit-created native context above every currently known displayId=2 context,
+ // and repeat briefly because AppBridge contexts appear after app launch.
+ void (^orderNow)(void)=^{
+   @try{
+    id mine=[gTest.layer valueForKey:@"context"]; unsigned mid=[[mine valueForKey:@"contextId"] unsignedIntValue];
+    NSArray *all=[NSClassFromString(@"CAContext") performSelector:NSSelectorFromString(@"allContexts")];
+    NSMutableArray *ids=[NSMutableArray array];
+    for(id x in all){NSNumber*d=[x valueForKey:@"displayId"];NSNumber*i=[x valueForKey:@"contextId"];
+      if(d.intValue==2 && i.unsignedIntValue && i.unsignedIntValue!=mid){[ids addObject:i];
+        if([mine respondsToSelector:NSSelectorFromString(@"orderAbove:")])
+          ((void(*)(id,SEL,unsigned))objc_msgSend)(mine,NSSelectorFromString(@"orderAbove:"),i.unsignedIntValue);
+      }}
+    L(@"ORDER nativeId=%u above=%@ level=%@",mid,ids,[mine valueForKey:@"level"]);
+   }@catch(NSException*e){L(@"ORDER EXCEPTION %@ %@",e.name,e.reason);}
+ };
+ orderNow();
+ for(int k=1;k<=12;k++) dispatch_after(dispatch_time(DISPATCH_TIME_NOW,k*500*NSEC_PER_MSEC),dispatch_get_main_queue(),^{orderNow();});
  // Keep the UIKit-native CarPlay window alive and above ordinary local windows.
  // This test deliberately avoids manual CAContext/CALayerHost.
  dispatch_after(dispatch_time(DISPATCH_TIME_NOW,1*NSEC_PER_SEC),dispatch_get_main_queue(),^{
