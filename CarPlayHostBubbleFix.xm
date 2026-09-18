@@ -74,8 +74,6 @@ static void Build(){
   // Make producer content deliberately unmistakable and force a CA transaction.
   // Bind the producer context to the actual CarPlay display when supported.
   @try{
-    unsigned did=(unsigned)w.screen.displayLink.timestamp; // fallback diagnostic only; real displayId below is discovered from window context
-    (void)did;
     id wc=[w.layer valueForKey:@"context"];
     NSNumber *wdid=nil; @try{wdid=[wc valueForKey:@"displayId"];}@catch(__unused NSException*e){}
     if(wdid && [gLocal respondsToSelector:NSSelectorFromString(@"setValue:forKey:")]) [gLocal setValue:wdid forKey:@"displayId"];
